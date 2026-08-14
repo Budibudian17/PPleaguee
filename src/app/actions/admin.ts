@@ -268,6 +268,14 @@ export async function completeLeagueAndQualifyTop4(pin: string) {
       standingsMap.set(match.away_user_id, awayStanding)
     })
 
+    // Determine number of qualified teams based on total participants
+    const totalTeams = standingsMap.size
+    const qualifiedCount = totalTeams >= 4 ? 4 : (totalTeams >= 2 ? 2 : 0)
+    
+    if (qualifiedCount < 2) {
+      return { success: false, error: 'Need at least 2 teams to qualify for tournament' }
+    }
+
     // Sort teams by points, then goal difference, then goals for
     const sortedTeams = Array.from(standingsMap.entries())
       .sort((a: [string, any], b: [string, any]) => {
@@ -275,7 +283,7 @@ export async function completeLeagueAndQualifyTop4(pin: string) {
         if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
         return b[1].goalsFor - a[1].goalsFor
       })
-      .slice(0, 4)
+      .slice(0, qualifiedCount)
       .map((entry: [string, any]) => entry[0]) as string[]
 
     // Update league config
@@ -307,60 +315,84 @@ export async function startTournament(pin: string) {
 
     // Get league config
     const config = await getLeagueConfig()
-    if (!config || config.qualified_teams.length < 4) {
-      return { success: false, error: 'Need 4 qualified teams to start tournament' }
+    if (!config || config.qualified_teams.length < 2) {
+      return { success: false, error: 'Need at least 2 qualified teams to start tournament' }
     }
 
-    // Generate tournament schedule (Quarter finals -> Semi finals -> Final)
+    // Generate tournament schedule based on number of qualified teams
     const qualifiedTeamIds = config.qualified_teams
     const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
     const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
     
     const qualifiedUsers = qualifiedTeamIds.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
 
-    if (qualifiedUsers.length < 4) {
-      return { success: false, error: 'Need 4 qualified teams' }
+    if (qualifiedUsers.length < 2) {
+      return { success: false, error: 'Need at least 2 qualified teams' }
     }
 
-    // For 4 teams, go directly to semi finals (2 matches: 1v4, 2v3)
-    const semiFinals = [
-      {
-        home_user_id: qualifiedUsers[0]?.id,
-        away_user_id: qualifiedUsers[3]?.id,
-        home_team_name: qualifiedUsers[0]?.team_name || '',
-        away_team_name: qualifiedUsers[3]?.team_name || '',
-        home_team_logo: qualifiedUsers[0]?.team_logo || '',
-        away_team_logo: qualifiedUsers[3]?.team_logo || '',
-        home_team_short_name: qualifiedUsers[0]?.team_short_name || '',
-        away_team_short_name: qualifiedUsers[3]?.team_short_name || '',
-        status: 'scheduled',
-        round: 100,
-        phase: 'tournament',
-        tournament_round: 'semi_final'
-      },
-      {
-        home_user_id: qualifiedUsers[1]?.id,
-        away_user_id: qualifiedUsers[2]?.id,
-        home_team_name: qualifiedUsers[1]?.team_name || '',
-        away_team_name: qualifiedUsers[2]?.team_name || '',
-        home_team_logo: qualifiedUsers[1]?.team_logo || '',
-        away_team_logo: qualifiedUsers[2]?.team_logo || '',
-        home_team_short_name: qualifiedUsers[1]?.team_short_name || '',
-        away_team_short_name: qualifiedUsers[2]?.team_short_name || '',
-        status: 'scheduled',
-        round: 100,
-        phase: 'tournament',
-        tournament_round: 'semi_final'
-      }
-    ]
-
-    // Insert semi finals
     const matchesRef = collection(getDBInstance(), 'matches')
-    for (const match of semiFinals) {
+
+    // If 2 teams, go directly to final
+    if (qualifiedUsers.length === 2) {
+      const final = {
+        home_user_id: qualifiedUsers[0]?.id,
+        away_user_id: qualifiedUsers[1]?.id,
+        home_team_name: qualifiedUsers[0]?.team_name || '',
+        away_team_name: qualifiedUsers[1]?.team_name || '',
+        home_team_logo: qualifiedUsers[0]?.team_logo || '',
+        away_team_logo: qualifiedUsers[1]?.team_logo || '',
+        home_team_short_name: qualifiedUsers[0]?.team_short_name || '',
+        away_team_short_name: qualifiedUsers[1]?.team_short_name || '',
+        status: 'scheduled',
+        round: 101,
+        phase: 'tournament',
+        tournament_round: 'final'
+      }
+
       await addDoc(matchesRef, {
-        ...match,
+        ...final,
         updated_at: serverTimestamp()
       })
+    }
+    // If 4 teams, go to semi finals (2 matches: 1v4, 2v3)
+    else if (qualifiedUsers.length === 4) {
+      const semiFinals = [
+        {
+          home_user_id: qualifiedUsers[0]?.id,
+          away_user_id: qualifiedUsers[3]?.id,
+          home_team_name: qualifiedUsers[0]?.team_name || '',
+          away_team_name: qualifiedUsers[3]?.team_name || '',
+          home_team_logo: qualifiedUsers[0]?.team_logo || '',
+          away_team_logo: qualifiedUsers[3]?.team_logo || '',
+          home_team_short_name: qualifiedUsers[0]?.team_short_name || '',
+          away_team_short_name: qualifiedUsers[3]?.team_short_name || '',
+          status: 'scheduled',
+          round: 100,
+          phase: 'tournament',
+          tournament_round: 'semi_final'
+        },
+        {
+          home_user_id: qualifiedUsers[1]?.id,
+          away_user_id: qualifiedUsers[2]?.id,
+          home_team_name: qualifiedUsers[1]?.team_name || '',
+          away_team_name: qualifiedUsers[2]?.team_name || '',
+          home_team_logo: qualifiedUsers[1]?.team_logo || '',
+          away_team_logo: qualifiedUsers[2]?.team_logo || '',
+          home_team_short_name: qualifiedUsers[1]?.team_short_name || '',
+          away_team_short_name: qualifiedUsers[2]?.team_short_name || '',
+          status: 'scheduled',
+          round: 100,
+          phase: 'tournament',
+          tournament_round: 'semi_final'
+        }
+      ]
+
+      for (const match of semiFinals) {
+        await addDoc(matchesRef, {
+          ...match,
+          updated_at: serverTimestamp()
+        })
+      }
     }
 
     // Update league config
@@ -411,7 +443,12 @@ export async function generateNextTournamentRound(pin: string) {
       return { success: false, error: 'Complete all semi finals first' }
     }
 
-    // Generate final if semi finals are completed and no final exists
+    // If no semi finals but final exists (2-team scenario), check if final is completed
+    if (semiFinals.length === 0 && finals.length > 0 && finalsCompleted === 0) {
+      return { success: false, error: 'Complete the final first' }
+    }
+
+    // Generate final if semi finals are completed and no final exists (4-team scenario)
     if (semiFinalsCompleted >= 2 && finals.length === 0) {
       const semiFinalWinners = semiFinals
         .map(m => m.home_score > m.away_score ? m.home_user_id : m.away_user_id)
