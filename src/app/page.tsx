@@ -1,12 +1,47 @@
+'use client'
+
+import { useState, useEffect } from 'react'
 import { calculateStandings, getTopScorers, getTopAssists } from '@/lib/standings'
 import { getMatches } from '@/app/actions/admin'
 import { Standing, TopScorer, TopAssist, Match } from '@/types'
 
-export default async function Home() {
-  const standings: Standing[] = await calculateStandings()
-  const topScorers: TopScorer[] = await getTopScorers(3)
-  const topAssists: TopAssist[] = await getTopAssists(3)
-  const matches: any[] = await getMatches()
+export default function Home() {
+  const [standings, setStandings] = useState<Standing[]>([])
+  const [topScorers, setTopScorers] = useState<TopScorer[]>([])
+  const [topAssists, setTopAssists] = useState<TopAssist[]>([])
+  const [matches, setMatches] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [standingsData, scorersData, assistsData, matchesData] = await Promise.all([
+          calculateStandings(),
+          getTopScorers(3),
+          getTopAssists(3),
+          getMatches()
+        ])
+        setStandings(standingsData)
+        setTopScorers(scorersData)
+        setTopAssists(assistsData)
+        setMatches(matchesData)
+      } catch (error) {
+        console.error('Error loading data:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadData()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#000000] text-white flex items-center justify-center">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    )
+  }
   
   // Filter only league matches and group by round
   const leagueMatches = matches.filter((m: any) => m.phase === 'league')
