@@ -1,4 +1,4 @@
-import { db } from '@/lib/firebase'
+import { getDB } from '@/lib/firebase'
 import { 
   collection, 
   getDocs, 
@@ -12,6 +12,10 @@ import {
   setDoc, 
   serverTimestamp 
 } from 'firebase/firestore'
+
+function getDBInstance() {
+  return getDB()
+}
 
 const ADMIN_PIN = '2626'
 
@@ -31,7 +35,7 @@ export async function registerUser(name: string, teamData: {
   try {
     // Check if team name already exists
     const usersQuery = query(
-      collection(db, 'users'),
+      collection(getDBInstance(), 'users'),
       where('team_name', '==', teamData.team_name)
     )
     const usersSnapshot = await getDocs(usersQuery)
@@ -41,7 +45,7 @@ export async function registerUser(name: string, teamData: {
     }
 
     // Register new user with team details from API
-    const usersRef = collection(db, 'users')
+    const usersRef = collection(getDBInstance(), 'users')
     await addDoc(usersRef, {
       name,
       team_name: teamData.team_name,
@@ -67,7 +71,7 @@ export async function addGamePlayer(userId: string, teamName: string, playerName
       return { success: false, error: 'Invalid PIN' }
     }
 
-    const gamePlayersRef = collection(db, 'game_players')
+    const gamePlayersRef = collection(getDBInstance(), 'game_players')
     await addDoc(gamePlayersRef, {
       user_id: userId,
       team_name: teamName,
@@ -90,7 +94,7 @@ export async function deleteGamePlayer(playerId: string, pin: string) {
       return { success: false, error: 'Invalid PIN' }
     }
 
-    await deleteDoc(doc(db, 'game_players', playerId))
+    await deleteDoc(doc(getDBInstance(), 'game_players', playerId))
 
 
     return { success: true }
@@ -108,7 +112,7 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
     }
 
     // Get all users
-    const usersSnapshot = await getDocs(collection(db, 'users'))
+    const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
     const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
 
     if (users.length < 2) {
@@ -118,7 +122,7 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
     // Delete existing league matches
     console.log('Deleting existing league matches...')
     const existingMatchesQuery = query(
-      collection(db, 'matches'),
+      collection(getDBInstance(), 'matches'),
       where('phase', '==', 'league')
     )
     const existingMatchesSnapshot = await getDocs(existingMatchesQuery)
@@ -130,12 +134,12 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
     
     // Delete all existing stats for league matches
     console.log('Deleting existing league stats...')
-    const statsRef = collection(db, 'stats')
+    const statsRef = collection(getDBInstance(), 'stats')
     const allStatsSnapshot = await getDocs(statsRef)
     
     for (const statDoc of allStatsSnapshot.docs) {
       const statData = statDoc.data()
-      const matchRef = doc(db, 'matches', statData.match_id)
+      const matchRef = doc(getDBInstance(), 'matches', statData.match_id)
       const matchDoc = await getDoc(matchRef)
       
       if (matchDoc.exists() && matchDoc.data()?.phase === 'league') {
@@ -148,7 +152,7 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
     const matches = generateRoundRobinSchedule(users as any[], homeAway)
 
     // Insert matches into database
-    const matchesRef = collection(db, 'matches')
+    const matchesRef = collection(getDBInstance(), 'matches')
     for (const match of matches) {
       await addDoc(matchesRef, {
         ...match,
@@ -158,7 +162,7 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
     }
 
     // Update league config
-    const configRef = doc(db, 'league_config', 'config')
+    const configRef = doc(getDBInstance(), 'league_config', 'config')
     await setDoc(configRef, {
       id: 'config',
       status: 'league_ongoing',
@@ -227,7 +231,7 @@ export async function completeLeagueAndQualifyTop4(pin: string) {
 
     // Get all league matches
     const matchesQuery = query(
-      collection(db, 'matches'),
+      collection(getDBInstance(), 'matches'),
       where('phase', '==', 'league')
     )
     const matchesSnapshot = await getDocs(matchesQuery)
@@ -278,7 +282,7 @@ export async function completeLeagueAndQualifyTop4(pin: string) {
       .map((entry: [string, any]) => entry[0]) as string[]
 
     // Update league config
-    const configRef = doc(db, 'league_config', 'config')
+    const configRef = doc(getDBInstance(), 'league_config', 'config')
     await setDoc(configRef, {
       id: 'config',
       status: 'league_completed',
@@ -313,7 +317,7 @@ export async function startTournament(pin: string) {
 
     // Generate tournament schedule (Quarter finals -> Semi finals -> Final)
     const qualifiedTeamIds = config.qualified_teams
-    const usersSnapshot = await getDocs(collection(db, 'users'))
+    const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
     const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
     
     const qualifiedUsers = qualifiedTeamIds.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
@@ -355,7 +359,7 @@ export async function startTournament(pin: string) {
     ]
 
     // Insert semi finals
-    const matchesRef = collection(db, 'matches')
+    const matchesRef = collection(getDBInstance(), 'matches')
     for (const match of semiFinals) {
       await addDoc(matchesRef, {
         ...match,
@@ -364,7 +368,7 @@ export async function startTournament(pin: string) {
     }
 
     // Update league config
-    const configRef = doc(db, 'league_config', 'config')
+    const configRef = doc(getDBInstance(), 'league_config', 'config')
     await setDoc(configRef, {
       id: 'config',
       status: 'tournament_ongoing',
@@ -391,7 +395,7 @@ export async function generateNextTournamentRound(pin: string) {
 
     // Get all tournament matches
     const allMatchesQuery = query(
-      collection(db, 'matches'),
+      collection(getDBInstance(), 'matches'),
       where('phase', '==', 'tournament')
     )
     const allSnapshot = await getDocs(allMatchesQuery)
@@ -421,7 +425,7 @@ export async function generateNextTournamentRound(pin: string) {
         return { success: false, error: 'Need 2 semi final winners' }
       }
 
-      const usersSnapshot = await getDocs(collection(db, 'users'))
+      const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
       const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
 
       const finalists = semiFinalWinners.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
@@ -445,7 +449,7 @@ export async function generateNextTournamentRound(pin: string) {
         tournament_round: 'final'
       }
 
-      await addDoc(collection(db, 'matches'), {
+      await addDoc(collection(getDBInstance(), 'matches'), {
         ...final,
         updated_at: serverTimestamp()
       })
@@ -463,7 +467,7 @@ export async function generateNextTournamentRound(pin: string) {
         : finalMatch.away_team_name
       
       // Update league config to mark tournament as completed
-      const configRef = doc(db, 'league_config', 'config')
+      const configRef = doc(getDBInstance(), 'league_config', 'config')
       await setDoc(configRef, {
         id: 'config',
         status: 'tournament_completed',
@@ -498,7 +502,7 @@ export async function updateMatchScore(
     }
 
     // Update match score and status
-    const matchRef = doc(db, 'matches', matchId)
+    const matchRef = doc(getDBInstance(), 'matches', matchId)
     await updateDoc(matchRef, {
       home_score: homeScore,
       away_score: awayScore,
@@ -508,18 +512,18 @@ export async function updateMatchScore(
 
     // Delete existing stats for this match
     const statsQuery = query(
-      collection(db, 'stats'),
+      collection(getDBInstance(), 'stats'),
       where('match_id', '==', matchId)
     )
     const statsSnapshot = await getDocs(statsQuery)
     
     for (const statDoc of statsSnapshot.docs) {
-      await deleteDoc(doc(db, 'stats', statDoc.id))
+      await deleteDoc(doc(getDBInstance(), 'stats', statDoc.id))
     }
 
     // Insert new stats
     if (stats.length > 0) {
-      const statsRef = collection(db, 'stats')
+      const statsRef = collection(getDBInstance(), 'stats')
       for (const stat of stats) {
         await addDoc(statsRef, {
           match_id: matchId,
@@ -545,7 +549,7 @@ export async function updateMatchScore(
 // Data Retrieval Functions
 export async function getUsers() {
   try {
-    const usersSnapshot = await getDocs(collection(db, 'users'))
+    const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
     return usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
   } catch (error) {
     console.error('Get users error:', error)
@@ -555,7 +559,7 @@ export async function getUsers() {
 
 export async function getGamePlayers() {
   try {
-    const gamePlayersSnapshot = await getDocs(collection(db, 'game_players'))
+    const gamePlayersSnapshot = await getDocs(collection(getDBInstance(), 'game_players'))
     return gamePlayersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
   } catch (error) {
     console.error('Get game players error:', error)
@@ -565,7 +569,7 @@ export async function getGamePlayers() {
 
 export async function getMatches() {
   try {
-    const matchesSnapshot = await getDocs(collection(db, 'matches'))
+    const matchesSnapshot = await getDocs(collection(getDBInstance(), 'matches'))
     const matches = matchesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
     
     // Sort matches by phase and round
@@ -586,7 +590,7 @@ export async function getMatches() {
 
 export async function getLeagueConfig() {
   try {
-    const configDoc = await getDoc(doc(db, 'league_config', 'config'))
+    const configDoc = await getDoc(doc(getDBInstance(), 'league_config', 'config'))
     if (configDoc.exists()) {
       return configDoc.data()
     }
@@ -600,7 +604,7 @@ export async function getLeagueConfig() {
 export async function getMatchStats(matchId: string) {
   try {
     const statsQuery = query(
-      collection(db, 'stats'),
+      collection(getDBInstance(), 'stats'),
       where('match_id', '==', matchId)
     )
     const statsSnapshot = await getDocs(statsQuery)
@@ -618,7 +622,7 @@ export async function deleteUser(userId: string, pin: string) {
       return { success: false, error: 'Invalid PIN' }
     }
 
-    await deleteDoc(doc(db, 'users', userId))
+    await deleteDoc(doc(getDBInstance(), 'users', userId))
 
     return { success: true }
   } catch (error) {
@@ -633,7 +637,7 @@ export async function deleteMatch(matchId: string, pin: string) {
       return { success: false, error: 'Invalid PIN' }
     }
 
-    await deleteDoc(doc(db, 'matches', matchId))
+    await deleteDoc(doc(getDBInstance(), 'matches', matchId))
 
 
 
@@ -653,11 +657,11 @@ export async function deleteAllData(pin: string) {
     console.log('Starting delete all data...')
     
     // Check for existing data
-    const usersSnapshot = await getDocs(collection(db, 'users'))
-    const matchesSnapshot = await getDocs(collection(db, 'matches'))
-    const gamePlayersSnapshot = await getDocs(collection(db, 'game_players'))
-    const statsSnapshot = await getDocs(collection(db, 'stats'))
-    const configDoc = await getDoc(doc(db, 'league_config', 'config'))
+    const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+    const matchesSnapshot = await getDocs(collection(getDBInstance(), 'matches'))
+    const gamePlayersSnapshot = await getDocs(collection(getDBInstance(), 'game_players'))
+    const statsSnapshot = await getDocs(collection(getDBInstance(), 'stats'))
+    const configDoc = await getDoc(doc(getDBInstance(), 'league_config', 'config'))
 
     const dataCounts = {
       users: usersSnapshot.size,
@@ -678,7 +682,7 @@ export async function deleteAllData(pin: string) {
     console.log('Deleting stats...')
     if (statsSnapshot.size > 0) {
       for (const statDoc of statsSnapshot.docs) {
-        await deleteDoc(doc(db, 'stats', statDoc.id))
+        await deleteDoc(doc(getDBInstance(), 'stats', statDoc.id))
       }
       console.log('Stats deleted')
     }
@@ -687,7 +691,7 @@ export async function deleteAllData(pin: string) {
     console.log('Deleting matches...')
     if (matchesSnapshot.size > 0) {
       for (const matchDoc of matchesSnapshot.docs) {
-        await deleteDoc(doc(db, 'matches', matchDoc.id))
+        await deleteDoc(doc(getDBInstance(), 'matches', matchDoc.id))
       }
       console.log('Matches deleted')
     }
@@ -696,7 +700,7 @@ export async function deleteAllData(pin: string) {
     console.log('Deleting game players...')
     if (gamePlayersSnapshot.size > 0) {
       for (const playerDoc of gamePlayersSnapshot.docs) {
-        await deleteDoc(doc(db, 'game_players', playerDoc.id))
+        await deleteDoc(doc(getDBInstance(), 'game_players', playerDoc.id))
       }
       console.log('Game players deleted')
     }
@@ -705,7 +709,7 @@ export async function deleteAllData(pin: string) {
     console.log('Deleting users...')
     if (usersSnapshot.size > 0) {
       for (const userDoc of usersSnapshot.docs) {
-        await deleteDoc(doc(db, 'users', userDoc.id))
+        await deleteDoc(doc(getDBInstance(), 'users', userDoc.id))
       }
       console.log('Users deleted')
     }
@@ -713,7 +717,7 @@ export async function deleteAllData(pin: string) {
     // Delete league config
     console.log('Deleting league config...')
     if (configDoc.exists()) {
-      await deleteDoc(doc(db, 'league_config', 'config'))
+      await deleteDoc(doc(getDBInstance(), 'league_config', 'config'))
       console.log('League config deleted')
     }
 

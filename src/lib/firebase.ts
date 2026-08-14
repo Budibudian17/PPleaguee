@@ -11,8 +11,28 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 }
 
-// Initialize Firebase
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0]
+// Lazy initialization - only initialize when needed
+let app: any = null
+let dbInstance: any = null
+let authInstance: any = null
 
-export const db = getFirestore(app)
-export const auth = getAuth(app)
+function getApp() {
+  if (!app) {
+    app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0]
+  }
+  return app
+}
+
+export function getDB() {
+  if (!dbInstance) {
+    dbInstance = getFirestore(getApp())
+  }
+  return dbInstance
+}
+
+export function getAuthInstance() {
+  if (!authInstance) {
+    authInstance = getAuth(getApp())
+  }
+  return authInstance
+}

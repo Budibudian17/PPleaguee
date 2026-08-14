@@ -3,8 +3,9 @@ import { Standing, TopScorer, TopAssist, User, Match } from '@/types'
 export async function calculateStandings(): Promise<Standing[]> {
   try {
     // Lazy import Firebase only when needed
-    const { db } = await import('./firebase')
+    const { getDB } = await import('./firebase')
     const { collection, getDocs, query, where } = await import('firebase/firestore')
+    const db = getDB()
 
     // Fetch all users
     const usersSnapshot = await getDocs(collection(db, 'users'))
@@ -139,8 +140,9 @@ export async function calculateStandings(): Promise<Standing[]> {
 
 export async function getTopScorers(limitCount: number = 10): Promise<TopScorer[]> {
   try {
-    const { db } = await import('./firebase')
+    const { getDB } = await import('./firebase')
     const { collection, getDocs, query, where, orderBy, limit } = await import('firebase/firestore')
+    const db = getDB()
 
     const statsQuery = query(
       collection(db, 'stats'),
@@ -164,8 +166,9 @@ export async function getTopScorers(limitCount: number = 10): Promise<TopScorer[
 
 export async function getTopAssists(limitCount: number = 10): Promise<TopAssist[]> {
   try {
-    const { db } = await import('./firebase')
+    const { getDB } = await import('./firebase')
     const { collection, getDocs, query, where, orderBy, limit } = await import('firebase/firestore')
+    const db = getDB()
 
     const statsQuery = query(
       collection(db, 'stats'),
