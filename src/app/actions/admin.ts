@@ -83,7 +83,6 @@ export async function addGamePlayer(userId: string, teamName: string, playerName
 
     return { success: true }
   } catch (error) {
-('Add game player error:', error)
     return { success: false, error: 'Failed to add game player' }
   }
 }
@@ -99,7 +98,6 @@ export async function deleteGamePlayer(playerId: string, pin: string) {
 
     return { success: true }
   } catch (error) {
-('Delete game player error:', error)
     return { success: false, error: 'Failed to delete game player' }
   }
 }
@@ -178,7 +176,6 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
 
     return { success: true }
   } catch (error) {
-('Schedule generation error:', error)
     return { success: false, error: 'Failed to generate schedule' }
   }
 }
@@ -297,7 +294,6 @@ export async function completeLeagueAndQualifyTop4(pin: string) {
 
     return { success: true }
   } catch (error) {
-('Complete league error:', error)
     return { success: false, error: 'Failed to complete league' }
   }
 }
@@ -382,7 +378,6 @@ export async function startTournament(pin: string) {
 
     return { success: true }
   } catch (error) {
-('Start tournament error:', error)
     return { success: false, error: 'Failed to start tournament' }
   }
 }
@@ -483,7 +478,6 @@ export async function generateNextTournamentRound(pin: string) {
 
     return { success: false, error: 'Complete all semi finals first' }
   } catch (error) {
-('Generate next round error:', error)
     return { success: false, error: 'Failed to generate next round' }
   }
 }
@@ -541,7 +535,6 @@ export async function updateMatchScore(
 
     return { success: true }
   } catch (error) {
-('Update match score error:', error)
     return { success: false, error: 'Failed to update match score' }
   }
 }
@@ -552,7 +545,6 @@ export async function getUsers() {
     const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
     return usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
   } catch (error) {
-('Get users error:', error)
     return []
   }
 }
@@ -562,7 +554,6 @@ export async function getGamePlayers() {
     const gamePlayersSnapshot = await getDocs(collection(getDBInstance(), 'game_players'))
     return gamePlayersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
   } catch (error) {
-('Get game players error:', error)
     return []
   }
 }
@@ -583,7 +574,6 @@ export async function getMatches() {
       return 0
     })
   } catch (error) {
-('Get matches error:', error)
     return []
   }
 }
@@ -596,7 +586,6 @@ export async function getLeagueConfig() {
     }
     return null
   } catch (error) {
-('Get league config error:', error)
     return null
   }
 }
@@ -610,7 +599,6 @@ export async function getMatchStats(matchId: string) {
     const statsSnapshot = await getDocs(statsQuery)
     return statsSnapshot.docs.map(doc => doc.data())
   } catch (error) {
-('Get match stats error:', error)
     return []
   }
 }
@@ -626,7 +614,6 @@ export async function deleteUser(userId: string, pin: string) {
 
     return { success: true }
   } catch (error) {
-('Delete user error:', error)
     return { success: false, error: 'Failed to delete user' }
   }
 }
@@ -643,7 +630,6 @@ export async function deleteMatch(matchId: string, pin: string) {
 
     return { success: true }
   } catch (error) {
-('Delete match error:', error)
     return { success: false, error: 'Failed to delete match' }
   }
 }
@@ -725,7 +711,6 @@ export async function deleteAllData(pin: string) {
 
     return { success: true }
   } catch (error) {
-('Delete all data error:', error)
     return { success: false, error: 'Failed to delete all data' }
   }
 }
