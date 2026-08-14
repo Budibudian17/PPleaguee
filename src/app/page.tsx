@@ -97,17 +97,25 @@ export default function Home() {
                         </td>
                       </tr>
                     ) : (
-                      standings.map((standing) => (
+                      standings.map((standing) => {
+                        const getPositionColor = (pos: number) => {
+                          switch(pos) {
+                            case 1: return { bg: 'bg-[#00FF66]/10', text: 'text-[#00FF66]', border: 'border-[#00FF66]/30' }
+                            case 2: return { bg: 'bg-[#3B82F6]/10', text: 'text-[#3B82F6]', border: 'border-[#3B82F6]/30' }
+                            case 3: return { bg: 'bg-[#F59E0B]/10', text: 'text-[#F59E0B]', border: 'border-[#F59E0B]/30' }
+                            case 4: return { bg: 'bg-[#8B5CF6]/10', text: 'text-[#8B5CF6]', border: 'border-[#8B5CF6]/30' }
+                            default: return { bg: '', text: 'text-gray-300', border: '' }
+                          }
+                        }
+                        const posColor = getPositionColor(standing.position)
+                        
+                        return (
                         <tr 
                           key={standing.team_name} 
-                          className={`hover:bg-[#161616] transition-colors ${
-                            standing.position === 1 ? 'bg-[#00FF66]/10' : ''
-                          }`}
+                          className={`hover:bg-[#161616] transition-colors ${posColor.bg} ${standing.position <= 4 ? posColor.border + ' border-l-2' : ''}`}
                         >
                           <td className="px-2 sm:px-4 py-2 sm:py-3 whitespace-nowrap">
-                            <span className={`font-mono font-bold text-xs sm:text-sm ${
-                              standing.position === 1 ? 'text-[#00FF66]' : 'text-gray-300'
-                            }`}>
+                            <span className={`font-mono font-bold text-xs sm:text-sm ${posColor.text}`}>
                               {standing.position}
                             </span>
                           </td>
@@ -147,10 +155,34 @@ export default function Home() {
                             {standing.points}
                           </td>
                         </tr>
-                      ))
+                        )
+                      })
                     )}
                   </tbody>
                 </table>
+                
+                {/* Legend at bottom of table */}
+                <div className="px-4 py-3 border-t border-[#262626] bg-[#161616]">
+                  <div className="flex flex-wrap items-center justify-center gap-4 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-[#00FF66] rounded-sm"></div>
+                      <span className="text-gray-300">Posisi 1</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-[#3B82F6] rounded-sm"></div>
+                      <span className="text-gray-300">Posisi 2</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-[#F59E0B] rounded-sm"></div>
+                      <span className="text-gray-300">Posisi 3</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-[#8B5CF6] rounded-sm"></div>
+                      <span className="text-gray-300">Posisi 4</span>
+                    </div>
+                    <span className="text-gray-500 ml-2">- Lolos Turnamen</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
