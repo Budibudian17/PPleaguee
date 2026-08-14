@@ -27,13 +27,9 @@ const nextConfig = {
     imageSizes: [16, 32, 48, 64, 96, 128, 256],
   },
   compress: true,
-  swcMinify: true,
   reactStrictMode: true,
   poweredByHeader: false,
   generateEtags: true,
-  http: {
-    trailingSlash: false,
-  },
   experimental: {
     optimizePackageImports: ['firebase/firestore', 'firebase/app'],
   },

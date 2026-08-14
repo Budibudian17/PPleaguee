@@ -6,7 +6,7 @@ import { Match, Stat, GamePlayer } from '@/types'
 import ConfirmModal from '@/components/ConfirmModal'
 import Alert from '@/components/Alert'
 
-interface MatchWithTeams extends Match {
+interface MatchWithTeams extends Omit<Match, 'tournament_round'> {
   home_team_name: string
   away_team_name: string
   phase: 'league' | 'tournament'
@@ -35,7 +35,7 @@ export default function FixturesPage() {
 
   const loadGamePlayers = async () => {
     const playersData = await getGamePlayers()
-    setGamePlayers(playersData)
+    setGamePlayers(playersData as GamePlayer[])
   }
 
   useEffect(() => {

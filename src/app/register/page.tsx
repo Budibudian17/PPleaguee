@@ -20,7 +20,7 @@ export default function RegisterPage() {
 
   const loadUsers = async () => {
     const usersData = await getUsers()
-    setUsers(usersData)
+    setUsers(usersData as User[])
   }
 
   const loadLeagues = async () => {

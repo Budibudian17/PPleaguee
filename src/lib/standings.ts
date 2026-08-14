@@ -12,8 +12,11 @@ export async function calculateStandings(): Promise<Standing[]> {
         id: doc.id,
         name: data.name,
         team_name: data.team_name,
+        team_id: data.team_id || 0,
         team_logo: data.team_logo || '',
         team_short_name: data.team_short_name || '',
+        league_id: data.league_id || 0,
+        league_name: data.league_name || '',
         created_at: data.created_at?.toDate?.() || new Date().toISOString()
       } as User
     })

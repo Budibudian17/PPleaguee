@@ -6,11 +6,13 @@ import {
   updateDoc, 
   deleteDoc, 
   doc, 
+  getDoc,
   query, 
   where, 
   setDoc, 
   serverTimestamp 
 } from 'firebase/firestore'
+import { revalidatePath } from 'next/cache'
 
 const ADMIN_PIN = '2626'
 
@@ -147,7 +149,7 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
     }
 
     // Generate round-robin schedule
-    const matches = generateRoundRobinSchedule(users, homeAway)
+    const matches = generateRoundRobinSchedule(users as any[], homeAway)
 
     // Insert matches into database
     const matchesRef = collection(db, 'matches')
@@ -188,12 +190,12 @@ function generateRoundRobinSchedule(users: any[], homeAway: boolean = false) {
   const matchesPerRound = n / 2
 
   // Create a copy of users array for rotation
-  const teams = [...users]
+  const teams = [...users] as any[]
   
   for (let round = 1; round <= totalRounds; round++) {
     for (let match = 0; match < matchesPerRound; match++) {
-      const home = teams[match]
-      const away = teams[teams.length - 1 - match]
+      const home = teams[match] as any
+      const away = teams[teams.length - 1 - match] as any
 
       matches.push({
         home_user_id: home.id,
@@ -271,13 +273,13 @@ export async function completeLeagueAndQualifyTop4(pin: string) {
 
     // Sort teams by points, then goal difference, then goals for
     const sortedTeams = Array.from(standingsMap.entries())
-      .sort((a, b) => {
+      .sort((a: [string, any], b: [string, any]) => {
         if (b[1].points !== a[1].points) return b[1].points - a[1].points
         if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
         return b[1].goalsFor - a[1].goalsFor
       })
       .slice(0, 4)
-      .map(entry => entry[0])
+      .map((entry: [string, any]) => entry[0]) as string[]
 
     // Update league config
     const configRef = doc(db, 'league_config', 'config')
@@ -316,9 +318,9 @@ export async function startTournament(pin: string) {
     // Generate tournament schedule (Quarter finals -> Semi finals -> Final)
     const qualifiedTeamIds = config.qualified_teams
     const usersSnapshot = await getDocs(collection(db, 'users'))
-    const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+    const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
     
-    const qualifiedUsers = qualifiedTeamIds.map(id => users.find(u => u.id === id)).filter(u => u !== undefined)
+    const qualifiedUsers = qualifiedTeamIds.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined)
 
     if (qualifiedUsers.length < 4) {
       return { success: false, error: 'Need 4 qualified teams' }
@@ -426,7 +428,7 @@ export async function generateNextTournamentRound(pin: string) {
       const usersSnapshot = await getDocs(collection(db, 'users'))
       const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
 
-      const finalists = semiFinalWinners.map(id => users.find(u => u.id === id)).filter(u => u !== undefined)
+      const finalists = semiFinalWinners.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined)
 
       if (finalists.length < 2) {
         return { success: false, error: 'Need 2 finalists' }
@@ -548,7 +550,7 @@ export async function updateMatchScore(
 export async function getUsers() {
   try {
     const usersSnapshot = await getDocs(collection(db, 'users'))
-    return usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+    return usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
   } catch (error) {
     console.error('Get users error:', error)
     return []
@@ -558,7 +560,7 @@ export async function getUsers() {
 export async function getGamePlayers() {
   try {
     const gamePlayersSnapshot = await getDocs(collection(db, 'game_players'))
-    return gamePlayersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+    return gamePlayersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
   } catch (error) {
     console.error('Get game players error:', error)
     return []
@@ -568,7 +570,7 @@ export async function getGamePlayers() {
 export async function getMatches() {
   try {
     const matchesSnapshot = await getDocs(collection(db, 'matches'))
-    const matches = matchesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+    const matches = matchesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
     
     // Sort matches by phase and round
     return matches.sort((a, b) => {

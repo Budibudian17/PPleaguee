@@ -6,17 +6,17 @@ export default async function Home() {
   const standings: Standing[] = await calculateStandings()
   const topScorers: TopScorer[] = await getTopScorers(3)
   const topAssists: TopAssist[] = await getTopAssists(3)
-  const matches: Match[] = await getMatches()
+  const matches: any[] = await getMatches()
   
   // Filter only league matches and group by round
-  const leagueMatches = matches.filter(m => m.phase === 'league')
-  const leagueMatchesByRound = leagueMatches.reduce((acc, match) => {
+  const leagueMatches = matches.filter((m: any) => m.phase === 'league')
+  const leagueMatchesByRound = leagueMatches.reduce((acc: any, match: any) => {
     if (!acc[match.round]) {
       acc[match.round] = []
     }
     acc[match.round].push(match)
     return acc
-  }, {} as Record<number, Match[]>)
+  }, {} as Record<number, any[]>)
 
   return (
     <div className="min-h-screen bg-[#000000] text-white p-3 sm:p-4 md:p-6 lg:p-8 overflow-x-hidden">
