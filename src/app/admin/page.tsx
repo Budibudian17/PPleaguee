@@ -75,7 +75,7 @@ export default function AdminPage() {
     setUsers(usersData)
     setGamePlayers(gamePlayersData)
     setMatches(matchesData)
-    setLeagueConfig(configData)
+    setLeagueConfig(configData as LeagueConfig | null)
   }
 
   useEffect(() => {

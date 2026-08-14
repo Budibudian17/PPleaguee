@@ -316,7 +316,7 @@ export async function startTournament(pin: string) {
     const usersSnapshot = await getDocs(collection(db, 'users'))
     const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
     
-    const qualifiedUsers = qualifiedTeamIds.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined)
+    const qualifiedUsers = qualifiedTeamIds.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
 
     if (qualifiedUsers.length < 4) {
       return { success: false, error: 'Need 4 qualified teams' }
@@ -325,28 +325,28 @@ export async function startTournament(pin: string) {
     // For 4 teams, go directly to semi finals (2 matches: 1v4, 2v3)
     const semiFinals = [
       {
-        home_user_id: qualifiedUsers[0].id,
-        away_user_id: qualifiedUsers[3].id,
-        home_team_name: qualifiedUsers[0].team_name,
-        away_team_name: qualifiedUsers[3].team_name,
-        home_team_logo: qualifiedUsers[0].team_logo || '',
-        away_team_logo: qualifiedUsers[3].team_logo || '',
-        home_team_short_name: qualifiedUsers[0].team_short_name || '',
-        away_team_short_name: qualifiedUsers[3].team_short_name || '',
+        home_user_id: qualifiedUsers[0]?.id,
+        away_user_id: qualifiedUsers[3]?.id,
+        home_team_name: qualifiedUsers[0]?.team_name || '',
+        away_team_name: qualifiedUsers[3]?.team_name || '',
+        home_team_logo: qualifiedUsers[0]?.team_logo || '',
+        away_team_logo: qualifiedUsers[3]?.team_logo || '',
+        home_team_short_name: qualifiedUsers[0]?.team_short_name || '',
+        away_team_short_name: qualifiedUsers[3]?.team_short_name || '',
         status: 'scheduled',
         round: 100,
         phase: 'tournament',
         tournament_round: 'semi_final'
       },
       {
-        home_user_id: qualifiedUsers[1].id,
-        away_user_id: qualifiedUsers[2].id,
-        home_team_name: qualifiedUsers[1].team_name,
-        away_team_name: qualifiedUsers[2].team_name,
-        home_team_logo: qualifiedUsers[1].team_logo || '',
-        away_team_logo: qualifiedUsers[2].team_logo || '',
-        home_team_short_name: qualifiedUsers[1].team_short_name || '',
-        away_team_short_name: qualifiedUsers[2].team_short_name || '',
+        home_user_id: qualifiedUsers[1]?.id,
+        away_user_id: qualifiedUsers[2]?.id,
+        home_team_name: qualifiedUsers[1]?.team_name || '',
+        away_team_name: qualifiedUsers[2]?.team_name || '',
+        home_team_logo: qualifiedUsers[1]?.team_logo || '',
+        away_team_logo: qualifiedUsers[2]?.team_logo || '',
+        home_team_short_name: qualifiedUsers[1]?.team_short_name || '',
+        away_team_short_name: qualifiedUsers[2]?.team_short_name || '',
         status: 'scheduled',
         round: 100,
         phase: 'tournament',
@@ -424,21 +424,21 @@ export async function generateNextTournamentRound(pin: string) {
       const usersSnapshot = await getDocs(collection(db, 'users'))
       const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
 
-      const finalists = semiFinalWinners.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined)
+      const finalists = semiFinalWinners.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
 
       if (finalists.length < 2) {
         return { success: false, error: 'Need 2 finalists' }
       }
 
       const final = {
-        home_user_id: finalists[0].id,
-        away_user_id: finalists[1].id,
-        home_team_name: finalists[0].team_name,
-        away_team_name: finalists[1].team_name,
-        home_team_logo: finalists[0].team_logo || '',
-        away_team_logo: finalists[1].team_logo || '',
-        home_team_short_name: finalists[0].team_short_name || '',
-        away_team_short_name: finalists[1].team_short_name || '',
+        home_user_id: finalists[0]?.id,
+        away_user_id: finalists[1]?.id,
+        home_team_name: finalists[0]?.team_name || '',
+        away_team_name: finalists[1]?.team_name || '',
+        home_team_logo: finalists[0]?.team_logo || '',
+        away_team_logo: finalists[1]?.team_logo || '',
+        home_team_short_name: finalists[0]?.team_short_name || '',
+        away_team_short_name: finalists[1]?.team_short_name || '',
         status: 'scheduled',
         round: 101,
         phase: 'tournament',
@@ -620,8 +620,6 @@ export async function deleteUser(userId: string, pin: string) {
 
     await deleteDoc(doc(db, 'users', userId))
 
-
-    revalidatePath('/register')
     return { success: true }
   } catch (error) {
     console.error('Delete user error:', error)
@@ -720,10 +718,6 @@ export async function deleteAllData(pin: string) {
     }
 
     console.log('Delete all data completed successfully')
-
-
-
-    revalidatePath('/register')
 
     return { success: true }
   } catch (error) {

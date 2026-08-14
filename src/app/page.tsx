@@ -10,7 +10,7 @@ export default async function Home() {
   
   // Filter only league matches and group by round
   const leagueMatches = matches.filter((m: any) => m.phase === 'league')
-  const leagueMatchesByRound = leagueMatches.reduce((acc: any, match: any) => {
+  const leagueMatchesByRound: Record<number, any[]> = leagueMatches.reduce((acc: any, match: any) => {
     if (!acc[match.round]) {
       acc[match.round] = []
     }
@@ -215,8 +215,8 @@ export default async function Home() {
                           PEKAN {round}
                         </h3>
                         {roundMatches
-                          .sort((a, b) => a.home_team_name.localeCompare(b.home_team_name))
-                          .map((match) => (
+                          .sort((a: any, b: any) => a.home_team_name.localeCompare(b.home_team_name))
+                          .map((match: any) => (
                           <div key={match.id} className="bg-[#161616] border border-[#262626] rounded-sm p-2 mb-2">
                             <div className="flex items-center justify-between">
                               <div className="flex-1 text-right">

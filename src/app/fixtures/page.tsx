@@ -10,12 +10,12 @@ interface MatchWithTeams extends Omit<Match, 'tournament_round'> {
   home_team_name: string
   away_team_name: string
   phase: 'league' | 'tournament'
-  tournament_round?: string
+  tournament_round?: 'quarter_final' | 'semi_final' | 'final'
 }
 
 export default function FixturesPage() {
-  const [matches, setMatches] = useState<MatchWithTeams[]>([])
-  const [selectedMatch, setSelectedMatch] = useState<MatchWithTeams | null>(null)
+  const [matches, setMatches] = useState<any[]>([])
+  const [selectedMatch, setSelectedMatch] = useState<any | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [adminPin, setAdminPin] = useState('')
   const [pinVerified, setPinVerified] = useState(false)
@@ -30,7 +30,7 @@ export default function FixturesPage() {
   const loadMatches = async () => {
     const matchesData = await getMatches()
     console.log('Matches data received:', matchesData)
-    setMatches(matchesData as MatchWithTeams[])
+    setMatches(matchesData as any[])
   }
 
   const loadGamePlayers = async () => {
@@ -43,7 +43,7 @@ export default function FixturesPage() {
     loadGamePlayers()
   }, [])
 
-  const handleInputResult = async (match: MatchWithTeams) => {
+  const handleInputResult = async (match: any) => {
     setSelectedMatch(match)
     setShowModal(true)
     setPinVerified(false)
