@@ -41,7 +41,7 @@ export async function fetchLeagues(): Promise<League[]> {
     const data = await response.json()
     return data.competitions || []
   } catch (error) {
-('Error fetching leagues:', error)
+    console.log('Error fetching leagues:', error)
     return []
   }
 }
@@ -62,7 +62,7 @@ export async function fetchTeams(leagueId: number): Promise<Team[]> {
     const data = await response.json()
     return data.teams || []
   } catch (error) {
-('Error fetching teams:', error)
+    console.log('Error fetching teams:', error)
     return []
   }
 }
@@ -83,7 +83,7 @@ export async function fetchPlayers(teamId: number): Promise<any[]> {
     const data = await response.json()
     return data.squad || []
   } catch (error) {
-('Error fetching players:', error)
+    console.log('Error fetching players:', error)
     return []
   }
 }
