@@ -29,7 +29,6 @@ export default function FixturesPage() {
 
   const loadMatches = async () => {
     const matchesData = await getMatches()
-    console.log('Matches data received:', matchesData)
     setMatches(matchesData as any[])
   }
 
@@ -62,13 +61,11 @@ export default function FixturesPage() {
   }
 
   const handleVerifyPin = async () => {
-    console.log('Verifying PIN:', adminPin)
     const isValid = await verifyAdminPin(adminPin)
     if (isValid) {
       setPinVerified(true)
       setMessage(null)
     } else {
-      console.log('PIN verification failed')
       setMessage({ type: 'error', text: 'PIN Admin salah' })
     }
   }

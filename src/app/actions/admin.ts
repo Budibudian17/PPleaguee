@@ -17,7 +17,7 @@ function getDBInstance() {
   return getDB()
 }
 
-const ADMIN_PIN = '2626'
+const ADMIN_PIN = process.env.ADMIN_PIN || '2626'
 
 export async function verifyAdminPin(pin: string): Promise<boolean> {
   return pin === ADMIN_PIN
@@ -59,7 +59,7 @@ export async function registerUser(name: string, teamData: {
 
     return { success: true }
   } catch (error) {
-    console.error('Registration error:', error)
+
     return { success: false, error: 'Registration failed' }
   }
 }
@@ -83,7 +83,7 @@ export async function addGamePlayer(userId: string, teamName: string, playerName
 
     return { success: true }
   } catch (error) {
-    console.error('Add game player error:', error)
+('Add game player error:', error)
     return { success: false, error: 'Failed to add game player' }
   }
 }
@@ -99,7 +99,7 @@ export async function deleteGamePlayer(playerId: string, pin: string) {
 
     return { success: true }
   } catch (error) {
-    console.error('Delete game player error:', error)
+('Delete game player error:', error)
     return { success: false, error: 'Failed to delete game player' }
   }
 }
@@ -120,7 +120,7 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
     }
 
     // Delete existing league matches
-    console.log('Deleting existing league matches...')
+
     const existingMatchesQuery = query(
       collection(getDBInstance(), 'matches'),
       where('phase', '==', 'league')
@@ -129,11 +129,11 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
     
     for (const doc of existingMatchesSnapshot.docs) {
       await deleteDoc(doc.ref)
-      console.log('Deleted match:', doc.id)
+
     }
     
     // Delete all existing stats for league matches
-    console.log('Deleting existing league stats...')
+
     const statsRef = collection(getDBInstance(), 'stats')
     const allStatsSnapshot = await getDocs(statsRef)
     
@@ -144,7 +144,7 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
       
       if (matchDoc.exists() && matchDoc.data()?.phase === 'league') {
         await deleteDoc(statDoc.ref)
-        console.log('Deleted stat:', statDoc.id)
+
       }
     }
 
@@ -178,7 +178,7 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
 
     return { success: true }
   } catch (error) {
-    console.error('Schedule generation error:', error)
+('Schedule generation error:', error)
     return { success: false, error: 'Failed to generate schedule' }
   }
 }
@@ -297,7 +297,7 @@ export async function completeLeagueAndQualifyTop4(pin: string) {
 
     return { success: true }
   } catch (error) {
-    console.error('Complete league error:', error)
+('Complete league error:', error)
     return { success: false, error: 'Failed to complete league' }
   }
 }
@@ -382,7 +382,7 @@ export async function startTournament(pin: string) {
 
     return { success: true }
   } catch (error) {
-    console.error('Start tournament error:', error)
+('Start tournament error:', error)
     return { success: false, error: 'Failed to start tournament' }
   }
 }
@@ -483,7 +483,7 @@ export async function generateNextTournamentRound(pin: string) {
 
     return { success: false, error: 'Complete all semi finals first' }
   } catch (error) {
-    console.error('Generate next round error:', error)
+('Generate next round error:', error)
     return { success: false, error: 'Failed to generate next round' }
   }
 }
@@ -541,7 +541,7 @@ export async function updateMatchScore(
 
     return { success: true }
   } catch (error) {
-    console.error('Update match score error:', error)
+('Update match score error:', error)
     return { success: false, error: 'Failed to update match score' }
   }
 }
@@ -552,7 +552,7 @@ export async function getUsers() {
     const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
     return usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
   } catch (error) {
-    console.error('Get users error:', error)
+('Get users error:', error)
     return []
   }
 }
@@ -562,7 +562,7 @@ export async function getGamePlayers() {
     const gamePlayersSnapshot = await getDocs(collection(getDBInstance(), 'game_players'))
     return gamePlayersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[]
   } catch (error) {
-    console.error('Get game players error:', error)
+('Get game players error:', error)
     return []
   }
 }
@@ -583,7 +583,7 @@ export async function getMatches() {
       return 0
     })
   } catch (error) {
-    console.error('Get matches error:', error)
+('Get matches error:', error)
     return []
   }
 }
@@ -596,7 +596,7 @@ export async function getLeagueConfig() {
     }
     return null
   } catch (error) {
-    console.error('Get league config error:', error)
+('Get league config error:', error)
     return null
   }
 }
@@ -610,7 +610,7 @@ export async function getMatchStats(matchId: string) {
     const statsSnapshot = await getDocs(statsQuery)
     return statsSnapshot.docs.map(doc => doc.data())
   } catch (error) {
-    console.error('Get match stats error:', error)
+('Get match stats error:', error)
     return []
   }
 }
@@ -626,7 +626,7 @@ export async function deleteUser(userId: string, pin: string) {
 
     return { success: true }
   } catch (error) {
-    console.error('Delete user error:', error)
+('Delete user error:', error)
     return { success: false, error: 'Failed to delete user' }
   }
 }
@@ -643,7 +643,7 @@ export async function deleteMatch(matchId: string, pin: string) {
 
     return { success: true }
   } catch (error) {
-    console.error('Delete match error:', error)
+('Delete match error:', error)
     return { success: false, error: 'Failed to delete match' }
   }
 }
@@ -654,7 +654,7 @@ export async function deleteAllData(pin: string) {
       return { success: false, error: 'Invalid PIN' }
     }
 
-    console.log('Starting delete all data...')
+
     
     // Check for existing data
     const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
@@ -671,7 +671,7 @@ export async function deleteAllData(pin: string) {
       config: configDoc.exists()
     }
 
-    console.log('Data counts:', dataCounts)
+
 
     if (usersSnapshot.size === 0 && matchesSnapshot.size === 0 && 
         gamePlayersSnapshot.size === 0 && statsSnapshot.size === 0 && !configDoc.exists()) {
@@ -679,53 +679,53 @@ export async function deleteAllData(pin: string) {
     }
 
     // Delete stats first (they reference matches)
-    console.log('Deleting stats...')
+
     if (statsSnapshot.size > 0) {
       for (const statDoc of statsSnapshot.docs) {
         await deleteDoc(doc(getDBInstance(), 'stats', statDoc.id))
       }
-      console.log('Stats deleted')
+
     }
 
     // Delete matches
-    console.log('Deleting matches...')
+
     if (matchesSnapshot.size > 0) {
       for (const matchDoc of matchesSnapshot.docs) {
         await deleteDoc(doc(getDBInstance(), 'matches', matchDoc.id))
       }
-      console.log('Matches deleted')
+
     }
 
     // Delete game players
-    console.log('Deleting game players...')
+
     if (gamePlayersSnapshot.size > 0) {
       for (const playerDoc of gamePlayersSnapshot.docs) {
         await deleteDoc(doc(getDBInstance(), 'game_players', playerDoc.id))
       }
-      console.log('Game players deleted')
+
     }
 
     // Delete users
-    console.log('Deleting users...')
+
     if (usersSnapshot.size > 0) {
       for (const userDoc of usersSnapshot.docs) {
         await deleteDoc(doc(getDBInstance(), 'users', userDoc.id))
       }
-      console.log('Users deleted')
+
     }
 
     // Delete league config
-    console.log('Deleting league config...')
+
     if (configDoc.exists()) {
       await deleteDoc(doc(getDBInstance(), 'league_config', 'config'))
-      console.log('League config deleted')
+
     }
 
-    console.log('Delete all data completed successfully')
+
 
     return { success: true }
   } catch (error) {
-    console.error('Delete all data error:', error)
+('Delete all data error:', error)
     return { success: false, error: 'Failed to delete all data' }
   }
 }

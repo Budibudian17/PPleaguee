@@ -26,7 +26,7 @@ export default function Home() {
         setTopAssists(assistsData)
         setMatches(matchesData)
       } catch (error) {
-        console.error('Error loading data:', error)
+        // Error handling without console logging for security
       } finally {
         setIsLoading(false)
       }

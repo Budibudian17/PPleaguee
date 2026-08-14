@@ -29,7 +29,6 @@ export default function RegisterPage() {
       const leaguesData = await getLeagues()
       setLeagues(leaguesData)
     } catch (error) {
-      console.error('Error loading leagues:', error)
       setMessage({ type: 'error', text: 'Gagal memuat liga. Pastikan API key sudah di-set.' })
     }
     setIsLoadingLeagues(false)
@@ -41,7 +40,6 @@ export default function RegisterPage() {
       const teamsData = await getTeams(leagueId)
       setTeams(teamsData)
     } catch (error) {
-      console.error('Error loading teams:', error)
       setMessage({ type: 'error', text: 'Gagal memuat tim.' })
     }
     setIsLoadingTeams(false)
