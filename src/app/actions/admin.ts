@@ -12,7 +12,6 @@ import {
   setDoc, 
   serverTimestamp 
 } from 'firebase/firestore'
-import { revalidatePath } from 'next/cache'
 
 const ADMIN_PIN = '2626'
 
@@ -54,9 +53,6 @@ export async function registerUser(name: string, teamData: {
       created_at: serverTimestamp()
     })
 
-    revalidatePath('/')
-    revalidatePath('/register')
-    revalidatePath('/admin')
     return { success: true }
   } catch (error) {
     console.error('Registration error:', error)
@@ -79,8 +75,8 @@ export async function addGamePlayer(userId: string, teamName: string, playerName
       created_at: serverTimestamp()
     })
 
-    revalidatePath('/admin')
-    revalidatePath('/fixtures')
+
+
     return { success: true }
   } catch (error) {
     console.error('Add game player error:', error)
@@ -95,8 +91,8 @@ export async function deleteGamePlayer(playerId: string, pin: string) {
     }
 
     await deleteDoc(doc(db, 'game_players', playerId))
-    revalidatePath('/admin')
-    revalidatePath('/fixtures')
+
+
     return { success: true }
   } catch (error) {
     console.error('Delete game player error:', error)
@@ -173,9 +169,9 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, homeAway:
       updated_at: serverTimestamp()
     }, { merge: true })
 
-    revalidatePath('/fixtures')
-    revalidatePath('/')
-    revalidatePath('/admin')
+
+
+
     return { success: true }
   } catch (error) {
     console.error('Schedule generation error:', error)
@@ -292,9 +288,9 @@ export async function completeLeagueAndQualifyTop4(pin: string) {
       updated_at: serverTimestamp()
     }, { merge: true })
 
-    revalidatePath('/')
-    revalidatePath('/admin')
-    revalidatePath('/fixtures')
+
+
+
     return { success: true }
   } catch (error) {
     console.error('Complete league error:', error)
@@ -378,8 +374,8 @@ export async function startTournament(pin: string) {
       updated_at: serverTimestamp()
     }, { merge: true })
 
-    revalidatePath('/fixtures')
-    revalidatePath('/admin')
+
+
     return { success: true }
   } catch (error) {
     console.error('Start tournament error:', error)
@@ -454,8 +450,8 @@ export async function generateNextTournamentRound(pin: string) {
         updated_at: serverTimestamp()
       })
 
-      revalidatePath('/fixtures')
-      revalidatePath('/admin')
+  
+  
       return { success: true }
     }
 
@@ -474,9 +470,9 @@ export async function generateNextTournamentRound(pin: string) {
         updated_at: serverTimestamp()
       }, { merge: true })
       
-      revalidatePath('/fixtures')
-      revalidatePath('/admin')
-      revalidatePath('/')
+  
+  
+  
       
       return { success: false, error: `🏆 Tournament Winner: ${winner}` }
     }
@@ -536,9 +532,9 @@ export async function updateMatchScore(
       }
     }
 
-    revalidatePath('/')
-    revalidatePath('/admin')
-    revalidatePath('/fixtures')
+
+
+
     return { success: true }
   } catch (error) {
     console.error('Update match score error:', error)
@@ -623,8 +619,8 @@ export async function deleteUser(userId: string, pin: string) {
     }
 
     await deleteDoc(doc(db, 'users', userId))
-    revalidatePath('/')
-    revalidatePath('/admin')
+
+
     revalidatePath('/register')
     return { success: true }
   } catch (error) {
@@ -640,9 +636,9 @@ export async function deleteMatch(matchId: string, pin: string) {
     }
 
     await deleteDoc(doc(db, 'matches', matchId))
-    revalidatePath('/')
-    revalidatePath('/admin')
-    revalidatePath('/fixtures')
+
+
+
     return { success: true }
   } catch (error) {
     console.error('Delete match error:', error)
@@ -725,10 +721,10 @@ export async function deleteAllData(pin: string) {
 
     console.log('Delete all data completed successfully')
 
-    revalidatePath('/')
-    revalidatePath('/admin')
+
+
     revalidatePath('/register')
-    revalidatePath('/fixtures')
+
     return { success: true }
   } catch (error) {
     console.error('Delete all data error:', error)
