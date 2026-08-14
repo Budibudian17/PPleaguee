@@ -3,6 +3,9 @@
 const API_BASE_URL = 'https://api.football-data.org/v4'
 const API_KEY = process.env.NEXT_PUBLIC_FOOTBALL_API_KEY || ''
 
+// Cache configuration
+const CACHE_TTL = 3600 // 1 hour cache for leagues/teams
+
 export interface League {
   id: number
   name: string
@@ -21,29 +24,21 @@ export interface Team {
   clubColors: string
 }
 
-// Server-side API functions (Server Actions)
+// Server-side API functions (Server Actions) with caching
 export async function fetchLeagues(): Promise<League[]> {
   try {
-    console.log('Fetching leagues with API key:', API_KEY ? 'Set' : 'Not set')
-    
     const response = await fetch(`${API_BASE_URL}/competitions`, {
       headers: {
         'X-Auth-Token': API_KEY,
       },
-      // Add cache control
-      cache: 'no-store',
+      next: { revalidate: CACHE_TTL }, // Cache for 1 hour
     })
 
-    console.log('Response status:', response.status)
-    
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error('API Error:', errorText)
-      throw new Error(`Failed to fetch leagues: ${response.status} - ${errorText}`)
+      throw new Error(`Failed to fetch leagues: ${response.status}`)
     }
 
     const data = await response.json()
-    console.log('Leagues fetched:', data.competitions?.length || 0)
     return data.competitions || []
   } catch (error) {
     console.error('Error fetching leagues:', error)
@@ -53,25 +48,18 @@ export async function fetchLeagues(): Promise<League[]> {
 
 export async function fetchTeams(leagueId: number): Promise<Team[]> {
   try {
-    console.log('Fetching teams for league:', leagueId)
-    
     const response = await fetch(`${API_BASE_URL}/competitions/${leagueId}/teams`, {
       headers: {
         'X-Auth-Token': API_KEY,
       },
-      cache: 'no-store',
+      next: { revalidate: CACHE_TTL }, // Cache for 1 hour
     })
 
-    console.log('Teams response status:', response.status)
-    
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error('API Error:', errorText)
-      throw new Error(`Failed to fetch teams: ${response.status} - ${errorText}`)
+      throw new Error(`Failed to fetch teams: ${response.status}`)
     }
 
     const data = await response.json()
-    console.log('Teams fetched:', data.teams?.length || 0)
     return data.teams || []
   } catch (error) {
     console.error('Error fetching teams:', error)
@@ -85,7 +73,7 @@ export async function fetchPlayers(teamId: number): Promise<any[]> {
       headers: {
         'X-Auth-Token': API_KEY,
       },
-      cache: 'no-store',
+      next: { revalidate: CACHE_TTL }, // Cache for 1 hour
     })
 
     if (!response.ok) {
