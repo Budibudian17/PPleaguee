@@ -1,16 +1,17 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getMatches, getMatchStats, updateMatchScore, getGamePlayers, verifyAdminPin } from '@/app/actions/admin'
-import { Match, Stat, GamePlayer } from '@/types'
+import { getMatches, getMatchStats, updateMatchScore, getGamePlayers, verifyAdminPin, getLeagueConfig } from '@/app/actions/admin'
+import { Match, Stat, GamePlayer, LeagueConfig } from '@/types'
 import ConfirmModal from '@/components/ConfirmModal'
 import Alert from '@/components/Alert'
 
 interface MatchWithTeams extends Omit<Match, 'tournament_round'> {
   home_team_name: string
   away_team_name: string
-  phase: 'league' | 'tournament'
-  tournament_round?: 'quarter_final' | 'semi_final' | 'final'
+  phase: 'league' | 'tournament' | 'group'
+  tournament_round?: 'play_in' | 'quarter_final' | 'semi_final' | 'final' | 'third_place'
+  group?: 'A' | 'B'
 }
 
 export default function FixturesPage() {
@@ -26,6 +27,7 @@ export default function FixturesPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [gamePlayers, setGamePlayers] = useState<GamePlayer[]>([])
   const [showSubmitConfirmModal, setShowSubmitConfirmModal] = useState(false)
+  const [leagueConfig, setLeagueConfig] = useState<LeagueConfig | null>(null)
 
   const loadMatches = async () => {
     const matchesData = await getMatches()
@@ -37,9 +39,15 @@ export default function FixturesPage() {
     setGamePlayers(playersData as GamePlayer[])
   }
 
+  const loadLeagueConfig = async () => {
+    const configData = await getLeagueConfig()
+    setLeagueConfig(configData as LeagueConfig | null)
+  }
+
   useEffect(() => {
     loadMatches()
     loadGamePlayers()
+    loadLeagueConfig()
   }, [])
 
   const handleInputResult = async (match: any) => {
@@ -126,18 +134,28 @@ export default function FixturesPage() {
 
   // Group matches by phase and round
   const leagueMatches = matches.filter(m => m.phase === 'league')
+  const groupMatches = matches.filter(m => m.phase === 'group')
   const tournamentMatches = matches.filter(m => m.phase === 'tournament')
 
-  // For bracket display, organize tournament matches
-  const quarterFinals = tournamentMatches
-    .filter(m => m.tournament_round === 'quarter_final')
-    .sort((a, b) => a.home_team_name.localeCompare(b.home_team_name))
-  const semiFinals = tournamentMatches
-    .filter(m => m.tournament_round === 'semi_final')
-    .sort((a, b) => a.home_team_name.localeCompare(b.home_team_name))
-  const finals = tournamentMatches
-    .filter(m => m.tournament_round === 'final')
-    .sort((a, b) => a.home_team_name.localeCompare(b.home_team_name))
+  // Group matches by group for World Cup mode
+  const groupMatchesByGroup: Record<string, any[]> = groupMatches.reduce((acc: any, match: any) => {
+    const group = match.group || 'A'
+    if (!acc[group]) {
+      acc[group] = []
+    }
+    acc[group].push(match)
+    return acc
+  }, {} as Record<string, any[]>)
+
+  // Tournament matches by round
+  const tournamentMatchesByRound: Record<string, any[]> = {}
+  tournamentMatches.forEach((match: any) => {
+    const round = match.tournament_round || 'unknown'
+    if (!tournamentMatchesByRound[round]) {
+      tournamentMatchesByRound[round] = []
+    }
+    tournamentMatchesByRound[round].push(match)
+  })
 
   return (
     <div className="min-h-screen bg-[#000000] text-white p-3 sm:p-4 md:p-6 lg:p-8 overflow-x-hidden">
@@ -147,128 +165,43 @@ export default function FixturesPage() {
             PPLG LEAGUE
           </h1>
           <p className="text-gray-400 text-xs sm:text-sm uppercase tracking-wide">
-            BRACKET TURNAMEN
+            JADWAL PERTANDINGAN
           </p>
+          {leagueConfig?.tournament_mode && (
+            <div className="mt-2">
+              <span className={`px-2 py-1 rounded-sm text-xs font-bold uppercase ${
+                leagueConfig.tournament_mode === 'liga' ? 'bg-[#00FF66]/20 text-[#00FF66]' :
+                leagueConfig.tournament_mode === 'knockout' ? 'bg-red-500/20 text-red-500' :
+                'bg-blue-500/20 text-blue-500'
+              }`}>
+                {leagueConfig.tournament_mode}
+              </span>
+            </div>
+          )}
         </div>
 
-        {tournamentMatches.length === 0 ? (
-          <div className="bg-[#121212] border border-[#262626] rounded-sm p-8 text-center">
-            <p className="text-gray-500">Belum ada bracket turnamen. Selesaikan liga dan admin akan generate bracket turnamen.</p>
-          </div>
-        ) : (
-          <div className="space-y-8">
-            {/* Tournament Bracket */}
-            <h2 className="text-xl sm:text-2xl font-bold uppercase tracking-wider mb-6 text-purple-500">
-              BRACKET TURNAMEN
-            </h2>
-            
-            <div className="flex flex-col lg:flex-row items-start justify-center gap-4 lg:gap-8 overflow-x-auto">
-              {/* Quarter Finals */}
-              {quarterFinals.length > 0 && (
-                <div className="flex flex-col gap-12 min-w-[180px]">
-                  <h3 className="text-sm sm:text-base font-bold uppercase tracking-wider text-gray-400 text-center mb-4">
-                    PEREMPAT FINAL
+        {/* World Cup Mode - Group Stage */}
+        {leagueConfig?.tournament_mode === 'worldcup' && Object.keys(groupMatchesByGroup).length > 0 && (
+          <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden mb-6">
+            <div className="px-4 py-3 border-b border-[#262626]">
+              <h2 className="text-lg font-bold uppercase tracking-wider">JADWAL GRUP</h2>
+            </div>
+            <div className="p-4 space-y-4">
+              {Object.entries(groupMatchesByGroup).map(([group, groupMatches]) => (
+                <div key={group}>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-2">
+                    GRUP {group}
                   </h3>
-                  <div className="flex flex-col gap-8">
-                    {quarterFinals.map((match, index) => (
-                      <div key={match.id} className="relative">
-                        <div
-                          className="bg-[#161616] border border-purple-500/30 rounded-sm p-2 sm:p-3 relative"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1 text-right flex items-center justify-end gap-2">
-                              {match.home_team_logo && (
-                                <img src={match.home_team_logo} alt={match.home_team_name} className="w-6 h-6 object-contain" />
-                              )}
-                              <div className="font-bold text-white text-xs">{match.home_team_name}</div>
-                            </div>
-                            <div className="mx-2">
-                              {match.status === 'played' ? (
-                                <span className="font-mono font-bold text-purple-500 text-xs">
-                                  {match.home_score} - {match.away_score}
-                                </span>
-                              ) : (
-                                <span className="font-mono text-gray-400 text-xs">VS</span>
-                              )}
-                            </div>
-                            <div className="flex-1 text-left flex items-center gap-2">
-                              <div className="font-bold text-white text-xs">{match.away_team_name}</div>
-                              {match.away_team_logo && (
-                                <img src={match.away_team_logo} alt={match.away_team_name} className="w-6 h-6 object-contain" />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        {/* Horizontal line to next round */}
-                        <div className="hidden lg:block absolute right-0 top-1/2 w-4 h-0.5 bg-purple-500/30 -translate-y-1/2 translate-x-full" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Semi Finals */}
-              {semiFinals.length > 0 && (
-                <div className="flex flex-col gap-12 min-w-[180px] mt-0 lg:mt-8">
-                  <h3 className="text-sm sm:text-base font-bold uppercase tracking-wider text-gray-400 text-center mb-4">
-                    SEMI FINAL
-                  </h3>
-                  <div className="flex flex-col gap-8">
-                    {semiFinals.map((match, index) => (
-                      <div key={match.id} className="relative">
-                        <div
-                          className="bg-[#161616] border border-purple-500/30 rounded-sm p-2 sm:p-3 relative"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1 text-right flex items-center justify-end gap-2">
-                              {match.home_team_logo && (
-                                <img src={match.home_team_logo} alt={match.home_team_name} className="w-6 h-6 object-contain" />
-                              )}
-                              <div className="font-bold text-white text-xs">{match.home_team_name}</div>
-                            </div>
-                            <div className="mx-2">
-                              {match.status === 'played' ? (
-                                <span className="font-mono font-bold text-purple-500 text-xs">
-                                  {match.home_score} - {match.away_score}
-                                </span>
-                              ) : (
-                                <span className="font-mono text-gray-400 text-xs">VS</span>
-                              )}
-                            </div>
-                            <div className="flex-1 text-left flex items-center gap-2">
-                              <div className="font-bold text-white text-xs">{match.away_team_name}</div>
-                              {match.away_team_logo && (
-                                <img src={match.away_team_logo} alt={match.away_team_name} className="w-6 h-6 object-contain" />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        {/* Horizontal line to next round */}
-                        <div className="hidden lg:block absolute right-0 top-1/2 w-4 h-0.5 bg-purple-500/30 -translate-y-1/2 translate-x-full" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Final */}
-              {finals.length > 0 && (
-                <div className="flex flex-col gap-12 min-w-[180px] mt-0 lg:mt-16">
-                  <h3 className="text-sm sm:text-base font-bold uppercase tracking-wider text-[#00FF66] text-center mb-4">
-                    FINAL
-                  </h3>
-                  <div className="flex flex-col gap-8">
-                    {finals.map((match) => (
-                      <div
-                        key={match.id}
-                        className="bg-[#161616] border border-[#00FF66]/30 rounded-sm p-2 sm:p-3"
+                  <div className="space-y-2">
+                    {groupMatches.map((match: any) => (
+                      <div 
+                        key={match.id} 
+                        className="bg-[#161616] border border-[#262626] rounded-sm p-2 cursor-pointer hover:border-[#00FF66] transition-colors"
+                        onClick={() => handleInputResult(match)}
                       >
                         <div className="flex items-center justify-between">
-                          <div className="flex-1 text-right flex items-center justify-end gap-2">
-                            {match.home_team_logo && (
-                              <img src={match.home_team_logo} alt={match.home_team_name} className="w-6 h-6 object-contain" />
-                            )}
-                            <div className="font-bold text-white text-xs">{match.home_team_name}</div>
+                          <div className="flex-1 text-right">
+                            <div className="font-medium text-white text-xs">{match.home_team_name}</div>
                           </div>
                           <div className="mx-2">
                             {match.status === 'played' ? (
@@ -279,19 +212,90 @@ export default function FixturesPage() {
                               <span className="font-mono text-gray-400 text-xs">VS</span>
                             )}
                           </div>
-                          <div className="flex-1 text-left flex items-center gap-2">
-                            <div className="font-bold text-white text-xs">{match.away_team_name}</div>
-                            {match.away_team_logo && (
-                              <img src={match.away_team_logo} alt={match.away_team_name} className="w-6 h-6 object-contain" />
-                            )}
+                          <div className="flex-1 text-left">
+                            <div className="font-medium text-white text-xs">{match.away_team_name}</div>
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
-              )}
+              ))}
             </div>
+          </div>
+        )}
+
+        {/* Tournament Bracket */}
+        {Object.keys(tournamentMatchesByRound).length > 0 ? (
+          <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#262626]">
+              <h2 className="text-lg font-bold uppercase tracking-wider">BRACKET TURNAMEN</h2>
+            </div>
+            <div className="p-4">
+              <div className="space-y-6">
+                {Object.entries(tournamentMatchesByRound)
+                  .sort(([a], [b]) => {
+                    const order: Record<string, number> = { 'play_in': 1, 'quarter_final': 2, 'semi_final': 3, 'final': 4, 'third_place': 5 }
+                    return (order[a] || 0) - (order[b] || 0)
+                  })
+                  .map(([round, roundMatches]) => (
+                    <div key={round} className="mb-4">
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-3">
+                        {round === 'play_in' ? 'PLAY-IN' :
+                         round === 'quarter_final' ? 'PEREMPAT FINAL' :
+                         round === 'semi_final' ? 'SEMI FINAL' :
+                         round === 'final' ? 'FINAL' :
+                         round === 'third_place' ? 'PEREBUTAN JUARA 3' : round.toUpperCase()}
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {roundMatches.map((match: any) => (
+                          <div 
+                            key={match.id} 
+                            className="bg-[#161616] border border-[#262626] rounded-sm p-3 cursor-pointer hover:border-[#00FF66] transition-colors"
+                            onClick={() => handleInputResult(match)}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex-1 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {match.home_team_logo && (
+                                    <img src={match.home_team_logo} alt={match.home_team_name} className="w-6 h-6 object-contain" />
+                                  )}
+                                  <div className="font-medium text-white text-sm">{match.home_team_name}</div>
+                                </div>
+                              </div>
+                              <div className="mx-3">
+                                {match.status === 'played' ? (
+                                  <span className="font-mono font-bold text-[#00FF66] text-sm">
+                                    {match.home_score} - {match.away_score}
+                                  </span>
+                                ) : (
+                                  <span className="font-mono text-gray-400 text-sm">VS</span>
+                                )}
+                              </div>
+                              <div className="flex-1 text-left">
+                                <div className="flex items-center gap-2">
+                                  <div className="font-medium text-white text-sm">{match.away_team_name}</div>
+                                  {match.away_team_logo && (
+                                    <img src={match.away_team_logo} alt={match.away_team_name} className="w-6 h-6 object-contain" />
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-[#121212] border border-[#262626] rounded-sm p-8 text-center">
+            <p className="text-gray-500">
+              {leagueConfig?.tournament_mode === 'worldcup' 
+                ? 'Belum ada jadwal grup atau bracket turnamen.' 
+                : 'Belum ada bracket turnamen. Selesaikan liga dan admin akan generate bracket turnamen.'}
+            </p>
           </div>
         )}
 

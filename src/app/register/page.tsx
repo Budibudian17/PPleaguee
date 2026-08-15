@@ -5,10 +5,11 @@ import { registerUser, getUsers } from '@/app/actions/admin'
 import { getLeagues, getTeams } from '@/app/actions/football'
 import { League, Team } from '@/lib/football-api'
 import { User } from '@/types'
+import CustomDropdown from '@/components/CustomDropdown'
 
 export default function RegisterPage() {
   const [name, setName] = useState('')
-  const [selectedLeague, setSelectedLeague] = useState<number | null>(null)
+  const [selectedLeague, setSelectedLeague] = useState<string | null>(null)
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
   const [leagues, setLeagues] = useState<League[]>([])
   const [teams, setTeams] = useState<Team[]>([])
@@ -26,40 +27,62 @@ export default function RegisterPage() {
   const loadLeagues = async () => {
     setIsLoadingLeagues(true)
     try {
+      // Check localStorage cache first
+      const cachedLeagues = localStorage.getItem('pplg_leagues_cache')
+      const cachedTime = localStorage.getItem('pplg_leagues_cache_time')
+      
+      if (cachedLeagues && cachedTime) {
+        const cacheAge = Date.now() - parseInt(cachedTime)
+        // Use cache if less than 24 hours old
+        if (cacheAge < 86400000) {
+          setLeagues(JSON.parse(cachedLeagues))
+          setIsLoadingLeagues(false)
+          return
+        }
+      }
+      
+      // Fetch from API if no cache or expired
       const leaguesData = await getLeagues()
       setLeagues(leaguesData)
+      
+      // Cache in localStorage
+      localStorage.setItem('pplg_leagues_cache', JSON.stringify(leaguesData))
+      localStorage.setItem('pplg_leagues_cache_time', Date.now().toString())
     } catch (error) {
       setMessage({ type: 'error', text: 'Gagal memuat liga. Pastikan API key sudah di-set.' })
     }
     setIsLoadingLeagues(false)
   }
 
-  const loadTeams = async (leagueId: number) => {
+  const loadTeams = async (leagueId: string) => {
     setIsLoadingTeams(true)
     try {
+      // Check localStorage cache first
+      const cacheKey = `pplg_teams_${leagueId}`
+      const cachedTeams = localStorage.getItem(cacheKey)
+      const cachedTime = localStorage.getItem(`${cacheKey}_time`)
+      
+      if (cachedTeams && cachedTime) {
+        const cacheAge = Date.now() - parseInt(cachedTime)
+        // Use cache if less than 1 hour old
+        if (cacheAge < 3600000) {
+          setTeams(JSON.parse(cachedTeams))
+          setIsLoadingTeams(false)
+          return
+        }
+      }
+      
+      // Fetch from API if no cache or expired
       const teamsData = await getTeams(leagueId)
       setTeams(teamsData)
+      
+      // Cache in localStorage
+      localStorage.setItem(cacheKey, JSON.stringify(teamsData))
+      localStorage.setItem(`${cacheKey}_time`, Date.now().toString())
     } catch (error) {
       setMessage({ type: 'error', text: 'Gagal memuat tim.' })
     }
     setIsLoadingTeams(false)
-  }
-
-  const handleLeagueChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const leagueId = parseInt(e.target.value)
-    setSelectedLeague(leagueId)
-    setSelectedTeam(null)
-    if (leagueId) {
-      loadTeams(leagueId)
-    } else {
-      setTeams([])
-    }
-  }
-
-  const handleTeamChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const teamId = parseInt(e.target.value)
-    const team = teams.find(t => t.id === teamId)
-    setSelectedTeam(team || null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -73,15 +96,15 @@ export default function RegisterPage() {
       return
     }
 
-    const selectedLeagueData = leagues.find(l => l.id === selectedLeague)
+    const selectedLeagueData = leagues.find(l => l.league_id === selectedLeague)
     
     const result = await registerUser(name, {
-      team_name: selectedTeam.name,
-      team_id: selectedTeam.id,
-      team_logo: selectedTeam.crest,
-      team_short_name: selectedTeam.shortName,
-      league_id: selectedLeague,
-      league_name: selectedLeagueData?.name || ''
+      team_name: selectedTeam.team_name,
+      team_id: parseInt(selectedTeam.team_key),
+      team_logo: selectedTeam.team_badge,
+      team_short_name: selectedTeam.team_name.split(' ').map((w: string) => w[0]).join('').toUpperCase(),
+      league_id: parseInt(selectedLeague),
+      league_name: selectedLeagueData?.league_name || ''
     })
     
     if (result.success) {
@@ -139,56 +162,60 @@ export default function RegisterPage() {
               </div>
 
               <div>
-                <label htmlFor="league" className="block text-sm font-medium text-gray-400 mb-2 uppercase tracking-wide">
+                <label className="block text-sm font-medium text-gray-400 mb-2 uppercase tracking-wide">
                   Pilih Liga
                 </label>
-                <select
-                  id="league"
+                <CustomDropdown
                   value={selectedLeague || ''}
-                  onChange={handleLeagueChange}
+                  onChange={(val) => {
+                    setSelectedLeague(val)
+                    setSelectedTeam(null)
+                    if (val) {
+                      loadTeams(val)
+                    } else {
+                      setTeams([])
+                    }
+                  }}
+                  options={leagues.map(league => ({
+                    value: league.league_id,
+                    label: league.league_name,
+                    subLabel: league.country_name
+                  }))}
+                  placeholder="Pilih liga"
                   disabled={isLoadingLeagues}
-                  required
-                  className="w-full bg-[#161616] border border-[#262626] rounded-sm px-4 py-2 text-white focus:outline-none focus:border-[#00FF66] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <option value="">Pilih liga</option>
-                  {leagues.map((league) => (
-                    <option key={league.id} value={league.id}>
-                      {league.name} ({league.areaName})
-                    </option>
-                  ))}
-                </select>
+                  isLoading={isLoadingLeagues}
+                />
               </div>
 
               <div>
-                <label htmlFor="team" className="block text-sm font-medium text-gray-400 mb-2 uppercase tracking-wide">
+                <label className="block text-sm font-medium text-gray-400 mb-2 uppercase tracking-wide">
                   Pilih Tim
                 </label>
-                <select
-                  id="team"
-                  value={selectedTeam?.id || ''}
-                  onChange={handleTeamChange}
+                <CustomDropdown
+                  value={selectedTeam?.team_key || ''}
+                  onChange={(val) => {
+                    const team = teams.find(t => t.team_key === val)
+                    setSelectedTeam(team || null)
+                  }}
+                  options={teams.map(team => ({
+                    value: team.team_key,
+                    label: team.team_name
+                  }))}
+                  placeholder="Pilih tim"
                   disabled={isLoadingTeams || !selectedLeague}
-                  required
-                  className="w-full bg-[#161616] border border-[#262626] rounded-sm px-4 py-2 text-white focus:outline-none focus:border-[#00FF66] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <option value="">Pilih tim</option>
-                  {teams.map((team) => (
-                    <option key={team.id} value={team.id}>
-                      {team.name}
-                    </option>
-                  ))}
-                </select>
+                  isLoading={isLoadingTeams}
+                />
               </div>
 
               {selectedTeam && (
                 <div className="bg-[#161616] border border-[#262626] rounded-sm p-3">
                   <div className="flex items-center gap-3">
-                    {selectedTeam.crest && (
-                      <img src={selectedTeam.crest} alt={selectedTeam.name} className="w-10 h-10 object-contain" />
+                    {selectedTeam.team_badge && (
+                      <img src={selectedTeam.team_badge} alt={selectedTeam.team_name} className="w-10 h-10 object-contain" />
                     )}
                     <div>
-                      <div className="font-bold text-white text-sm">{selectedTeam.name}</div>
-                      <div className="text-xs text-gray-500">{selectedTeam.shortName}</div>
+                      <div className="font-bold text-white text-sm">{selectedTeam.team_name}</div>
+                      <div className="text-xs text-gray-500">{selectedTeam.team_name.split(' ').map((w: string) => w[0]).join('').toUpperCase()}</div>
                     </div>
                   </div>
                 </div>

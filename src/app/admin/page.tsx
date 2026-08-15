@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { toPng } from 'html-to-image'
 import { 
   getUsers, 
   getGamePlayers, 
@@ -22,6 +23,7 @@ import {
 import { User, GamePlayer, Match, LeagueConfig } from '@/types'
 import ConfirmModal from '@/components/ConfirmModal'
 import Alert from '@/components/Alert'
+import MatchPoster from '@/components/MatchPoster'
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -58,12 +60,22 @@ export default function AdminPage() {
   // Home/Away toggle
   const [homeAway, setHomeAway] = useState(false)
   
+  // Tournament mode selection
+  const [tournamentMode, setTournamentMode] = useState<'liga' | 'knockout' | 'worldcup'>('liga')
+  
   // Score input modal
   const [showScoreModal, setShowScoreModal] = useState(false)
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null)
   const [homeScore, setHomeScore] = useState('')
   const [awayScore, setAwayScore] = useState('')
   const [playerStats, setPlayerStats] = useState<{ playerName: string, statType: 'goal' | 'assist', count: number }[]>([])
+  const [goalTimeline, setGoalTimeline] = useState<{ team: 'home' | 'away', playerName: string, minute: number }[]>([])
+
+  // Poster generation
+  const [showPosterModal, setShowPosterModal] = useState(false)
+  const [posterMatch, setPosterMatch] = useState<Match | null>(null)
+  const [isGeneratingPoster, setIsGeneratingPoster] = useState(false)
+  const posterRef = useRef<HTMLDivElement>(null)
 
   const loadData = async () => {
     const [usersData, gamePlayersData, matchesData, configData] = await Promise.all([
@@ -189,7 +201,7 @@ export default function AdminPage() {
   const confirmGenerateSchedule = async () => {
     setShowGenerateScheduleModal(false)
     setIsLoading(true)
-    const result = await lockRegistrationAndGenerateSchedule(adminPin, homeAway)
+    const result = await lockRegistrationAndGenerateSchedule(adminPin, tournamentMode, homeAway)
     
     if (result.success) {
       setMessage({ type: 'success', text: 'Jadwal lama dihapus, jadwal baru berhasil dibuat!' })
@@ -228,6 +240,7 @@ export default function AdminPage() {
     setHomeScore(match.home_score?.toString() || '')
     setAwayScore(match.away_score?.toString() || '')
     setPlayerStats([])
+    setGoalTimeline([])
     
     // Load existing stats for this match
     const existingStats = await getMatchStats(match.id)
@@ -238,6 +251,21 @@ export default function AdminPage() {
     })))
     
     setShowScoreModal(true)
+  }
+
+  const handleAddGoal = () => {
+    setGoalTimeline([...goalTimeline, { team: 'home', playerName: '', minute: 0 }])
+  }
+
+  const handleRemoveGoal = (index: number) => {
+    const newTimeline = goalTimeline.filter((_, i) => i !== index)
+    setGoalTimeline(newTimeline)
+  }
+
+  const handleUpdateGoal = (index: number, field: 'team' | 'playerName' | 'minute', value: any) => {
+    const newTimeline = [...goalTimeline]
+    newTimeline[index] = { ...newTimeline[index], [field]: value }
+    setGoalTimeline(newTimeline)
   }
 
   const handleAddPlayerStat = () => {
@@ -340,6 +368,39 @@ export default function AdminPage() {
     setIsLoading(false)
   }
 
+  const handleGeneratePoster = (match: Match) => {
+    if (match.status !== 'played' || !match.home_score || !match.away_score) {
+      setMessage({ type: 'error', text: 'Poster hanya bisa dibuat untuk pertandingan yang sudah selesai' })
+      return
+    }
+    setPosterMatch(match)
+    setGoalTimeline([]) // Reset timeline for poster
+    setShowPosterModal(true)
+  }
+
+  const handleDownloadPoster = async () => {
+    if (!posterRef.current || !posterMatch) return
+
+    setIsGeneratingPoster(true)
+    try {
+      const dataUrl = await toPng(posterRef.current, {
+        quality: 1,
+        backgroundColor: '#0a0a0a'
+      })
+      
+      const link = document.createElement('a')
+      link.download = `PPLG_${posterMatch.home_team_name}_vs_${posterMatch.away_team_name}.png`
+      link.href = dataUrl
+      link.click()
+      
+      setMessage({ type: 'success', text: 'Poster berhasil didownload!' })
+    } catch (error) {
+      console.error('Error generating poster:', error)
+      setMessage({ type: 'error', text: 'Gagal generate poster' })
+    }
+    setIsGeneratingPoster(false)
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#000000] text-white p-4 sm:p-6 lg:p-8 flex items-center justify-center">
@@ -417,19 +478,31 @@ export default function AdminPage() {
         {/* League Status */}
         <div className="mb-6 bg-[#121212] border border-[#262626] rounded-sm p-3 sm:p-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
-            <h2 className="text-base sm:text-lg font-bold uppercase tracking-wider">STATUS LIGA</h2>
-            <span className={`px-3 py-1 rounded-sm text-xs font-bold uppercase ${
-              leagueConfig?.status === 'league_ongoing' ? 'bg-[#00FF66]/20 text-[#00FF66]' :
-              leagueConfig?.status === 'league_completed' ? 'bg-blue-500/20 text-blue-500' :
-              leagueConfig?.status === 'tournament_ongoing' ? 'bg-purple-500/20 text-purple-500' :
-              'bg-gray-500/20 text-gray-500'
-            }`}>
-              {leagueConfig?.status || 'registration'}
-            </span>
+            <h2 className="text-base sm:text-lg font-bold uppercase tracking-wider">STATUS TURNAMEN</h2>
+            <div className="flex items-center gap-2">
+              {leagueConfig?.tournament_mode && (
+                <span className={`px-2 py-1 rounded-sm text-xs font-bold uppercase ${
+                  leagueConfig.tournament_mode === 'liga' ? 'bg-[#00FF66]/20 text-[#00FF66]' :
+                  leagueConfig.tournament_mode === 'knockout' ? 'bg-red-500/20 text-red-500' :
+                  'bg-blue-500/20 text-blue-500'
+                }`}>
+                  {leagueConfig.tournament_mode}
+                </span>
+              )}
+              <span className={`px-3 py-1 rounded-sm text-xs font-bold uppercase ${
+                leagueConfig?.status === 'league_ongoing' ? 'bg-[#00FF66]/20 text-[#00FF66]' :
+                leagueConfig?.status === 'league_completed' ? 'bg-blue-500/20 text-blue-500' :
+                leagueConfig?.status === 'tournament_ongoing' ? 'bg-purple-500/20 text-purple-500' :
+                leagueConfig?.status === 'group_ongoing' ? 'bg-yellow-500/20 text-yellow-500' :
+                'bg-gray-500/20 text-gray-500'
+              }`}>
+                {leagueConfig?.status || 'registration'}
+              </span>
+            </div>
           </div>
           
           <div className="grid grid-cols-1 gap-3">
-            {leagueConfig?.status === 'league_ongoing' && (
+            {leagueConfig?.tournament_mode === 'liga' && leagueConfig?.status === 'league_ongoing' && (
               <button
                 onClick={handleCompleteLeague}
                 disabled={isLoading}
@@ -439,7 +512,7 @@ export default function AdminPage() {
               </button>
             )}
             
-            {leagueConfig?.status === 'league_completed' && !leagueConfig.tournament_started && (
+            {leagueConfig?.tournament_mode === 'liga' && leagueConfig?.status === 'league_completed' && !leagueConfig.tournament_started && (
               <button
                 onClick={handleStartTournament}
                 disabled={isLoading}
@@ -449,13 +522,13 @@ export default function AdminPage() {
               </button>
             )}
             
-            {leagueConfig?.status === 'tournament_ongoing' && (
+            {(leagueConfig?.status === 'tournament_ongoing' || leagueConfig?.status === 'group_ongoing') && (
               <button
                 onClick={handleGenerateNextRound}
                 disabled={isLoading}
                 className="bg-purple-500 text-white font-bold uppercase tracking-wider py-2 px-4 rounded-sm hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
               >
-                Generate Ronde Berikutnya
+                {leagueConfig?.status === 'group_ongoing' ? 'Selesaikan Grup & Lanjut Knockout' : 'Generate Ronde Berikutnya'}
               </button>
             )}
           </div>
@@ -672,6 +745,14 @@ export default function AdminPage() {
                         >
                           Input Skor
                         </button>
+                        {match.status === 'played' && (
+                          <button
+                            onClick={() => handleGeneratePoster(match)}
+                            className="bg-purple-500/10 border border-purple-500/50 text-purple-500 px-3 py-1 rounded-sm hover:bg-purple-500/20 transition-colors text-xs"
+                          >
+                            Poster
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDeleteMatch(match.id)}
                           className="bg-red-500/10 border border-red-500/50 text-red-500 px-3 py-1 rounded-sm hover:bg-red-500/20 transition-colors text-xs"
@@ -739,16 +820,103 @@ export default function AdminPage() {
         isDangerous={true}
       />
 
-      <ConfirmModal
-        isOpen={showGenerateScheduleModal}
-        title="Generate Jadwal"
-        message="Generate jadwal pertandingan baru? Jadwal liga yang sudah ada akan dihapus dan diganti dengan jadwal baru."
-        confirmText="Generate"
-        cancelText="Batal"
-        onConfirm={confirmGenerateSchedule}
-        onCancel={() => setShowGenerateScheduleModal(false)}
-        isDangerous={true}
-      />
+      {/* Generate Schedule Modal */}
+      {showGenerateScheduleModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#121212] border border-[#262626] rounded-sm max-w-md w-full">
+            <div className="px-4 py-3 border-b border-[#262626]">
+              <h2 className="text-lg font-bold uppercase tracking-wider">
+                PILIH MODE TURNAMEN
+              </h2>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              <div className="space-y-3">
+                <button
+                  onClick={() => setTournamentMode('liga')}
+                  className={`w-full text-left p-4 rounded-sm border-2 transition-all ${
+                    tournamentMode === 'liga'
+                      ? 'border-[#00FF66] bg-[#00FF66]/10'
+                      : 'border-[#262626] bg-[#161616] hover:border-[#00FF66]/50'
+                  }`}
+                >
+                  <div className="font-bold text-white mb-1">Mode Liga</div>
+                  <div className="text-xs text-gray-400">
+                    Full Round-Robin Home-Away. Top 4 kualifikasi ke turnamen.
+                  </div>
+                </button>
+                
+                <button
+                  onClick={() => setTournamentMode('knockout')}
+                  className={`w-full text-left p-4 rounded-sm border-2 transition-all ${
+                    tournamentMode === 'knockout'
+                      ? 'border-[#00FF66] bg-[#00FF66]/10'
+                      : 'border-[#262626] bg-[#161616] hover:border-[#00FF66]/50'
+                  }`}
+                >
+                  <div className="font-bold text-white mb-1">Mode Knockout</div>
+                  <div className="text-xs text-gray-400">
+                    Sistem gugur Home-Away. Play-in untuk jumlah ganjil.
+                  </div>
+                </button>
+                
+                <button
+                  onClick={() => setTournamentMode('worldcup')}
+                  className={`w-full text-left p-4 rounded-sm border-2 transition-all ${
+                    tournamentMode === 'worldcup'
+                      ? 'border-[#00FF66] bg-[#00FF66]/10'
+                      : 'border-[#262626] bg-[#161616] hover:border-[#00FF66]/50'
+                  }`}
+                >
+                  <div className="font-bold text-white mb-1">Mode World Cup</div>
+                  <div className="text-xs text-gray-400">
+                    Grup + Knockout. Semua main di grup dulu, lalu sistem gugur.
+                  </div>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <label className="flex items-center gap-2 text-xs sm:text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={homeAway}
+                    onChange={(e) => setHomeAway(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <div className={`w-5 h-5 border-2 rounded-sm transition-colors ${
+                    homeAway 
+                      ? 'bg-[#00FF66] border-[#00FF66]' 
+                      : 'bg-[#161616] border-[#262626] hover:border-[#00FF66]'
+                  }`}>
+                    {homeAway && (
+                      <svg className="w-3 h-3 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path>
+                      </svg>
+                    )}
+                  </div>
+                  Home & Away (2 Leg)
+                </label>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => setShowGenerateScheduleModal(false)}
+                  className="flex-1 bg-[#161616] border border-[#262626] text-white font-bold uppercase tracking-wider py-3 rounded-sm hover:bg-[#1a1a1a] hover:border-[#00FF66] transition-colors text-sm"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={confirmGenerateSchedule}
+                  disabled={isLoading}
+                  className="flex-1 bg-[#00FF66] text-black font-bold uppercase tracking-wider py-3 rounded-sm hover:bg-[#00CC52] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                >
+                  {isLoading ? 'Generating...' : 'Generate'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmModal
         isOpen={showDeleteAllDataModal}
@@ -840,6 +1008,57 @@ export default function AdminPage() {
               <div className="border-t border-[#262626] pt-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">
+                    GOAL TIMELINE
+                  </h3>
+                  <button
+                    onClick={handleAddGoal}
+                    className="bg-[#00FF66] text-black font-bold uppercase tracking-wider py-1 px-3 rounded-sm hover:bg-[#00CC52] transition-colors text-xs"
+                  >
+                    + Tambah Gol
+                  </button>
+                </div>
+                
+                {goalTimeline.map((goal, index) => (
+                  <div key={index} className="bg-[#161616] border border-[#262626] rounded-sm p-3 mb-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
+                      <select
+                        value={goal.team}
+                        onChange={(e) => handleUpdateGoal(index, 'team', e.target.value)}
+                        className="bg-[#121212] border border-[#262626] text-white px-3 py-2 rounded-sm text-sm focus:outline-none focus:border-[#00FF66]"
+                      >
+                        <option value="home">Home ({selectedMatch.home_team_name})</option>
+                        <option value="away">Away ({selectedMatch.away_team_name})</option>
+                      </select>
+                      <input
+                        type="text"
+                        placeholder="Nama Pemain"
+                        value={goal.playerName}
+                        onChange={(e) => handleUpdateGoal(index, 'playerName', e.target.value)}
+                        className="bg-[#121212] border border-[#262626] text-white px-3 py-2 rounded-sm text-sm focus:outline-none focus:border-[#00FF66]"
+                      />
+                      <input
+                        type="number"
+                        placeholder="Menit"
+                        value={goal.minute}
+                        onChange={(e) => handleUpdateGoal(index, 'minute', parseInt(e.target.value))}
+                        className="bg-[#121212] border border-[#262626] text-white px-3 py-2 rounded-sm text-sm focus:outline-none focus:border-[#00FF66]"
+                        min="0"
+                        max="120"
+                      />
+                    </div>
+                    <button
+                      onClick={() => handleRemoveGoal(index)}
+                      className="text-red-500 text-xs hover:text-red-400 transition-colors"
+                    >
+                      Hapus
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t border-[#262626] pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">
                     STATISTIK PEMAIN
                   </h3>
                   <button
@@ -899,6 +1118,67 @@ export default function AdminPage() {
                   className="flex-1 bg-[#00FF66] text-black font-bold uppercase tracking-wider py-3 rounded-sm hover:bg-[#00CC52] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                 >
                   {isLoading ? 'Menyimpan...' : 'Simpan'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Poster Modal */}
+      {showPosterModal && posterMatch && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50 overflow-x-auto">
+          <div className="bg-[#121212] border border-[#262626] rounded-sm max-w-5xl w-full">
+            <div className="px-4 py-3 border-b border-[#262626] flex items-center justify-between">
+              <h2 className="text-lg font-bold uppercase tracking-wider">
+                POSTER PERTANDINGAN
+              </h2>
+              <button
+                onClick={() => setShowPosterModal(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              {/* Poster Preview */}
+              <div className="flex justify-center overflow-x-auto">
+                <div className="transform scale-75 origin-top">
+                  <div ref={posterRef}>
+                    <MatchPoster
+                      homeTeamName={posterMatch.home_team_name}
+                      awayTeamName={posterMatch.away_team_name}
+                      homeTeamLogo={posterMatch.home_team_logo}
+                      awayTeamLogo={posterMatch.away_team_logo}
+                      homeScore={posterMatch.home_score || 0}
+                      awayScore={posterMatch.away_score || 0}
+                      round={posterMatch.round}
+                      phase={posterMatch.phase}
+                      date={new Date(posterMatch.updated_at || '').toLocaleDateString('id-ID', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric'
+                      })}
+                      goalTimeline={goalTimeline}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => setShowPosterModal(false)}
+                  className="flex-1 bg-[#161616] border border-[#262626] text-white font-bold uppercase tracking-wider py-3 rounded-sm hover:bg-[#1a1a1a] hover:border-[#00FF66] transition-colors text-sm"
+                >
+                  Tutup
+                </button>
+                <button
+                  onClick={handleDownloadPoster}
+                  disabled={isGeneratingPoster}
+                  className="flex-1 bg-[#00FF66] text-black font-bold uppercase tracking-wider py-3 rounded-sm hover:bg-[#00CC52] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                >
+                  {isGeneratingPoster ? 'Generating...' : 'Download Poster'}
                 </button>
               </div>
             </div>

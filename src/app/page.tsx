@@ -2,29 +2,32 @@
 
 import { useState, useEffect } from 'react'
 import { calculateStandings, getTopScorers, getTopAssists } from '@/lib/standings'
-import { getMatches } from '@/app/actions/admin'
-import { Standing, TopScorer, TopAssist, Match } from '@/types'
+import { getMatches, getLeagueConfig } from '@/app/actions/admin'
+import { Standing, TopScorer, TopAssist, Match, LeagueConfig } from '@/types'
 
 export default function Home() {
   const [standings, setStandings] = useState<Standing[]>([])
   const [topScorers, setTopScorers] = useState<TopScorer[]>([])
   const [topAssists, setTopAssists] = useState<TopAssist[]>([])
   const [matches, setMatches] = useState<any[]>([])
+  const [leagueConfig, setLeagueConfig] = useState<LeagueConfig | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [standingsData, scorersData, assistsData, matchesData] = await Promise.all([
+        const [standingsData, scorersData, assistsData, matchesData, configData] = await Promise.all([
           calculateStandings(),
           getTopScorers(3),
           getTopAssists(3),
-          getMatches()
+          getMatches(),
+          getLeagueConfig()
         ])
         setStandings(standingsData)
         setTopScorers(scorersData)
         setTopAssists(assistsData)
         setMatches(matchesData)
+        setLeagueConfig(configData as LeagueConfig | null)
       } catch (error) {
         // Error handling without console logging for security
       } finally {
@@ -43,8 +46,11 @@ export default function Home() {
     )
   }
   
-  // Filter only league matches and group by round
+  // Filter matches based on tournament mode
   const leagueMatches = matches.filter((m: any) => m.phase === 'league')
+  const groupMatches = matches.filter((m: any) => m.phase === 'group')
+  const tournamentMatches = matches.filter((m: any) => m.phase === 'tournament')
+  
   const leagueMatchesByRound: Record<number, any[]> = leagueMatches.reduce((acc: any, match: any) => {
     if (!acc[match.round]) {
       acc[match.round] = []
@@ -52,6 +58,26 @@ export default function Home() {
     acc[match.round].push(match)
     return acc
   }, {} as Record<number, any[]>)
+
+  // Group matches by group
+  const groupMatchesByGroup: Record<string, any[]> = groupMatches.reduce((acc: any, match: any) => {
+    const group = match.group || 'A'
+    if (!acc[group]) {
+      acc[group] = []
+    }
+    acc[group].push(match)
+    return acc
+  }, {} as Record<string, any[]>)
+
+  // Tournament matches by round
+  const tournamentMatchesByRound: Record<string, any[]> = {}
+  tournamentMatches.forEach((match: any) => {
+    const round = match.tournament_round || 'unknown'
+    if (!tournamentMatchesByRound[round]) {
+      tournamentMatchesByRound[round] = []
+    }
+    tournamentMatchesByRound[round].push(match)
+  })
 
   return (
     <div className="min-h-screen bg-[#000000] text-white p-3 sm:p-4 md:p-6 lg:p-8 overflow-x-hidden">
@@ -63,15 +89,207 @@ export default function Home() {
           <p className="text-gray-400 text-xs sm:text-sm uppercase tracking-wide">
             FC 26 Tournament Standings
           </p>
+          {leagueConfig?.tournament_mode && (
+            <div className="mt-2">
+              <span className={`px-2 py-1 rounded-sm text-xs font-bold uppercase ${
+                leagueConfig.tournament_mode === 'liga' ? 'bg-[#00FF66]/20 text-[#00FF66]' :
+                leagueConfig.tournament_mode === 'knockout' ? 'bg-red-500/20 text-red-500' :
+                'bg-blue-500/20 text-blue-500'
+              }`}>
+                {leagueConfig.tournament_mode}
+              </span>
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 w-full">
-          {/* Main Standings Table */}
-          <div className="lg:col-span-2 w-full">
-            <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden w-full">
+        {/* Knockout Mode - Show Bracket */}
+        {leagueConfig?.tournament_mode === 'knockout' && (
+          <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#262626]">
+              <h2 className="text-lg font-bold uppercase tracking-wider">BRACKET TURNAMEN</h2>
+            </div>
+            <div className="p-4">
+              {Object.keys(tournamentMatchesByRound).length === 0 ? (
+                <div className="text-center text-gray-500 text-sm">
+                  Belum ada jadwal turnamen
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {Object.entries(tournamentMatchesByRound)
+                    .sort(([a], [b]) => {
+                      const order: Record<string, number> = { 'play_in': 1, 'quarter_final': 2, 'semi_final': 3, 'final': 4, 'third_place': 5 }
+                      return (order[a] || 0) - (order[b] || 0)
+                    })
+                    .map(([round, roundMatches]) => (
+                      <div key={round} className="mb-4">
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-3">
+                          {round === 'play_in' ? 'PLAY-IN' :
+                           round === 'quarter_final' ? 'PEREMPAT FINAL' :
+                           round === 'semi_final' ? 'SEMI FINAL' :
+                           round === 'final' ? 'FINAL' :
+                           round === 'third_place' ? 'PEREBUTAN JUARA 3' : round.toUpperCase()}
+                        </h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {roundMatches.map((match: any) => (
+                            <div key={match.id} className="bg-[#161616] border border-[#262626] rounded-sm p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex-1 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    {match.home_team_logo && (
+                                      <img src={match.home_team_logo} alt={match.home_team_name} className="w-6 h-6 object-contain" />
+                                    )}
+                                    <div className="font-medium text-white text-sm">{match.home_team_name}</div>
+                                  </div>
+                                </div>
+                                <div className="mx-3">
+                                  {match.status === 'played' ? (
+                                    <span className="font-mono font-bold text-[#00FF66] text-sm">
+                                      {match.home_score} - {match.away_score}
+                                    </span>
+                                  ) : (
+                                    <span className="font-mono text-gray-400 text-sm">VS</span>
+                                  )}
+                                </div>
+                                <div className="flex-1 text-left">
+                                  <div className="flex items-center gap-2">
+                                    <div className="font-medium text-white text-sm">{match.away_team_name}</div>
+                                    {match.away_team_logo && (
+                                      <img src={match.away_team_logo} alt={match.away_team_name} className="w-6 h-6 object-contain" />
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* World Cup Mode - Show Group Standings + Bracket */}
+        {leagueConfig?.tournament_mode === 'worldcup' && (
+          <div className="space-y-6">
+            {/* Group Standings */}
+            <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-[#262626]">
-                <h2 className="text-lg font-bold uppercase tracking-wider">KLASEMEN</h2>
+                <h2 className="text-lg font-bold uppercase tracking-wider">KLASEMEN GRUP</h2>
               </div>
+              <div className="p-4 space-y-4">
+                {Object.keys(groupMatchesByGroup).length === 0 ? (
+                  <div className="text-center text-gray-500 text-sm">
+                    Belum ada jadwal grup
+                  </div>
+                ) : (
+                  Object.entries(groupMatchesByGroup).map(([group, groupMatches]) => (
+                    <div key={group}>
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-2">
+                        GRUP {group}
+                      </h3>
+                      <div className="space-y-2">
+                        {groupMatches.map((match: any) => (
+                          <div key={match.id} className="bg-[#161616] border border-[#262626] rounded-sm p-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1 text-right">
+                                <div className="font-medium text-white text-xs">{match.home_team_name}</div>
+                              </div>
+                              <div className="mx-2">
+                                {match.status === 'played' ? (
+                                  <span className="font-mono font-bold text-[#00FF66] text-xs">
+                                    {match.home_score} - {match.away_score}
+                                  </span>
+                                ) : (
+                                  <span className="font-mono text-gray-400 text-xs">VS</span>
+                                )}
+                              </div>
+                              <div className="flex-1 text-left">
+                                <div className="font-medium text-white text-xs">{match.away_team_name}</div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Tournament Bracket */}
+            {Object.keys(tournamentMatchesByRound).length > 0 && (
+              <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-[#262626]">
+                  <h2 className="text-lg font-bold uppercase tracking-wider">BRACKET KNOCKOUT</h2>
+                </div>
+                <div className="p-4">
+                  <div className="space-y-6">
+                    {Object.entries(tournamentMatchesByRound)
+                      .sort(([a], [b]) => {
+                        const order: Record<string, number> = { 'quarter_final': 1, 'semi_final': 2, 'final': 3, 'third_place': 4 }
+                        return (order[a] || 0) - (order[b] || 0)
+                      })
+                      .map(([round, roundMatches]) => (
+                        <div key={round} className="mb-4">
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-3">
+                            {round === 'quarter_final' ? 'PEREMPAT FINAL' :
+                             round === 'semi_final' ? 'SEMI FINAL' :
+                             round === 'final' ? 'FINAL' :
+                             round === 'third_place' ? 'PEREBUTAN JUARA 3' : round.toUpperCase()}
+                          </h3>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {roundMatches.map((match: any) => (
+                              <div key={match.id} className="bg-[#161616] border border-[#262626] rounded-sm p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex-1 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      {match.home_team_logo && (
+                                        <img src={match.home_team_logo} alt={match.home_team_name} className="w-6 h-6 object-contain" />
+                                      )}
+                                      <div className="font-medium text-white text-sm">{match.home_team_name}</div>
+                                    </div>
+                                  </div>
+                                  <div className="mx-3">
+                                    {match.status === 'played' ? (
+                                      <span className="font-mono font-bold text-[#00FF66] text-sm">
+                                        {match.home_score} - {match.away_score}
+                                      </span>
+                                    ) : (
+                                      <span className="font-mono text-gray-400 text-sm">VS</span>
+                                    )}
+                                  </div>
+                                  <div className="flex-1 text-left">
+                                    <div className="flex items-center gap-2">
+                                      <div className="font-medium text-white text-sm">{match.away_team_name}</div>
+                                      {match.away_team_logo && (
+                                        <img src={match.away_team_logo} alt={match.away_team_name} className="w-6 h-6 object-contain" />
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Liga Mode - Default Standings */}
+        {(!leagueConfig?.tournament_mode || leagueConfig.tournament_mode === 'liga') && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 w-full">
+            {/* Main Standings Table */}
+            <div className="lg:col-span-2 w-full">
+              <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden w-full">
+                <div className="px-4 py-3 border-b border-[#262626]">
+                  <h2 className="text-lg font-bold uppercase tracking-wider">KLASEMEN</h2>
+                </div>
               
               <div className="overflow-x-auto w-full">
                 <table className="w-full">
@@ -188,129 +406,130 @@ export default function Home() {
           </div>
 
           {/* Side Stats */}
-          <div className="space-y-6">
-            {/* Top Scorers */}
-            <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-[#262626]">
-                <h2 className="text-lg font-bold uppercase tracking-wider">TOP SCORERS</h2>
-              </div>
-              <div className="p-4">
-                {topScorers.length === 0 ? (
-                  <div className="text-center text-gray-500 text-sm">
-                    Belum ada data gol
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    {topScorers.map((scorer, index) => (
-                      <div key={index} className="flex-1 bg-[#161616] border border-[#262626] rounded-sm p-3">
-                        <div className="flex items-center justify-center mb-2">
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
-                            index === 0 ? 'bg-[#00FF66] text-black' :
-                            index === 1 ? 'bg-gray-400 text-black' :
-                            'bg-amber-600 text-black'
-                          }`}>
-                            {index + 1}
-                          </div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-bold text-white text-xs mb-1">{scorer.player_name}</div>
-                          <div className="text-xs text-gray-500 mb-2">{scorer.team_name}</div>
-                          <div className="font-mono font-bold text-[#00FF66] text-sm">
-                            {scorer.goals} Goals
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Top Assists */}
-            <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-[#262626]">
-                <h2 className="text-lg font-bold uppercase tracking-wider">TOP ASSISTS</h2>
-              </div>
-              <div className="p-4">
-                {topAssists.length === 0 ? (
-                  <div className="text-center text-gray-500 text-sm">
-                    Belum ada data assist
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    {topAssists.map((assist, index) => (
-                      <div key={index} className="flex-1 bg-[#161616] border border-[#262626] rounded-sm p-3">
-                        <div className="flex items-center justify-center mb-2">
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
-                            index === 0 ? 'bg-[#00FF66] text-black' :
-                            index === 1 ? 'bg-gray-400 text-black' :
-                            'bg-amber-600 text-black'
-                          }`}>
-                            {index + 1}
-                          </div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-bold text-white text-xs mb-1">{assist.player_name}</div>
-                          <div className="text-xs text-gray-500 mb-2">{assist.team_name}</div>
-                          <div className="font-mono font-bold text-[#00FF66] text-sm">
-                            {assist.assists} Assists
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* League Schedule */}
-            <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-[#262626]">
-                <h2 className="text-lg font-bold uppercase tracking-wider">JADWAL LIGA</h2>
-              </div>
-              <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
-                {Object.keys(leagueMatchesByRound).length === 0 ? (
-                  <div className="text-center text-gray-500 text-sm">
-                    Belum ada jadwal liga
-                  </div>
-                ) : (
-                  Object.entries(leagueMatchesByRound)
-                    .sort(([a], [b]) => parseInt(a) - parseInt(b))
-                    .map(([round, roundMatches]) => (
-                      <div key={round} className="mb-3">
-                        <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-2">
-                          PEKAN {round}
-                        </h3>
-                        {roundMatches
-                          .sort((a: any, b: any) => a.home_team_name.localeCompare(b.home_team_name))
-                          .map((match: any) => (
-                          <div key={match.id} className="bg-[#161616] border border-[#262626] rounded-sm p-2 mb-2">
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1 text-right">
-                                <div className="font-medium text-white text-xs">{match.home_team_name}</div>
-                              </div>
-                              <div className="mx-2">
-                                {match.status === 'played' ? (
-                                  <span className="font-mono font-bold text-[#00FF66] text-xs">
-                                    {match.home_score} - {match.away_score}
-                                  </span>
-                                ) : (
-                                  <span className="font-mono text-gray-400 text-xs">VS</span>
-                                )}
-                              </div>
-                              <div className="flex-1 text-left">
-                                <div className="font-medium text-white text-xs">{match.away_team_name}</div>
-                              </div>
+          <div className="lg:col-span-1 space-y-6">
+              {/* Top Scorers */}
+              <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-[#262626]">
+                  <h2 className="text-lg font-bold uppercase tracking-wider">TOP SCORERS</h2>
+                </div>
+                <div className="p-4">
+                  {topScorers.length === 0 ? (
+                    <div className="text-center text-gray-500 text-sm">
+                      Belum ada data gol
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      {topScorers.map((scorer, index) => (
+                        <div key={index} className="flex-1 bg-[#161616] border border-[#262626] rounded-sm p-3">
+                          <div className="flex items-center justify-center mb-2">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
+                              index === 0 ? 'bg-[#00FF66] text-black' :
+                              index === 1 ? 'bg-gray-400 text-black' :
+                              'bg-amber-600 text-black'
+                            }`}>
+                              {index + 1}
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    ))
-                )}
+                          <div className="text-center">
+                            <div className="font-bold text-white text-xs mb-1">{scorer.player_name}</div>
+                            <div className="text-xs text-gray-500 mb-2">{scorer.team_name}</div>
+                            <div className="font-mono font-bold text-[#00FF66] text-sm">
+                              {scorer.goals} Goals
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Top Assists */}
+              <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-[#262626]">
+                  <h2 className="text-lg font-bold uppercase tracking-wider">TOP ASSISTS</h2>
+                </div>
+                <div className="p-4">
+                  {topAssists.length === 0 ? (
+                    <div className="text-center text-gray-500 text-sm">
+                      Belum ada data assist
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      {topAssists.map((assist, index) => (
+                        <div key={index} className="flex-1 bg-[#161616] border border-[#262626] rounded-sm p-3">
+                          <div className="flex items-center justify-center mb-2">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
+                              index === 0 ? 'bg-[#00FF66] text-black' :
+                              index === 1 ? 'bg-gray-400 text-black' :
+                              'bg-amber-600 text-black'
+                            }`}>
+                              {index + 1}
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="font-bold text-white text-xs mb-1">{assist.player_name}</div>
+                            <div className="text-xs text-gray-500 mb-2">{assist.team_name}</div>
+                            <div className="font-mono font-bold text-[#00FF66] text-sm">
+                              {assist.assists} Assists
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* League Schedule */}
+              <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-[#262626]">
+                  <h2 className="text-lg font-bold uppercase tracking-wider">JADWAL LIGA</h2>
+                </div>
+                <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
+                  {Object.keys(leagueMatchesByRound).length === 0 ? (
+                    <div className="text-center text-gray-500 text-sm">
+                      Belum ada jadwal liga
+                    </div>
+                  ) : (
+                    Object.entries(leagueMatchesByRound)
+                      .sort(([a], [b]) => parseInt(a) - parseInt(b))
+                      .map(([round, roundMatches]) => (
+                        <div key={round} className="mb-3">
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-2">
+                            PEKAN {round}
+                          </h3>
+                          {roundMatches
+                            .sort((a: any, b: any) => a.home_team_name.localeCompare(b.home_team_name))
+                            .map((match: any) => (
+                            <div key={match.id} className="bg-[#161616] border border-[#262626] rounded-sm p-2 mb-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1 text-right">
+                                  <div className="font-medium text-white text-xs">{match.home_team_name}</div>
+                                </div>
+                                <div className="mx-2">
+                                  {match.status === 'played' ? (
+                                    <span className="font-mono font-bold text-[#00FF66] text-xs">
+                                      {match.home_score} - {match.away_score}
+                                    </span>
+                                  ) : (
+                                    <span className="font-mono text-gray-400 text-xs">VS</span>
+                                  )}
+                                </div>
+                                <div className="flex-1 text-left">
+                                  <div className="font-medium text-white text-xs">{match.away_team_name}</div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ))
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

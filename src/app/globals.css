@@ -57,3 +57,21 @@ html, body {
 ::-webkit-scrollbar-corner {
   background: #121212;
 }
+
+/* Custom Scrollbar for Dropdown */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #161616;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #00FF66;
+}

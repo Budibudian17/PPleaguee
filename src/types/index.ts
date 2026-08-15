@@ -32,14 +32,16 @@ export interface Match {
   away_score: number | null
   status: 'scheduled' | 'played'
   round: number
-  phase: 'league' | 'tournament'
-  tournament_round?: 'quarter_final' | 'semi_final' | 'final'
+  phase: 'league' | 'tournament' | 'group'
+  tournament_round?: 'play_in' | 'quarter_final' | 'semi_final' | 'final' | 'third_place' | 'group_stage'
+  group?: 'A' | 'B'
   updated_at: any // Firestore Timestamp
 }
 
 export interface LeagueConfig {
   id: string
-  status: 'registration' | 'league_ongoing' | 'league_completed' | 'tournament_ongoing' | 'tournament_completed'
+  status: 'registration' | 'league_ongoing' | 'league_completed' | 'tournament_ongoing' | 'tournament_completed' | 'group_ongoing'
+  tournament_mode?: 'liga' | 'knockout' | 'worldcup'
   top_4_qualification: boolean
   qualified_teams: string[]
   tournament_started: boolean
