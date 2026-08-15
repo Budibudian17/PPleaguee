@@ -295,7 +295,8 @@ export default function AdminPage() {
         player_name: stat.playerName,
         team_name: selectedMatch.home_team_name,
         type: stat.statType,
-        count: stat.count
+        count: stat.count,
+        minute: 0 // No minute for player stats, only goal timeline
       })),
       adminPin
     )
@@ -368,13 +369,25 @@ export default function AdminPage() {
     setIsLoading(false)
   }
 
-  const handleGeneratePoster = (match: Match) => {
+  const handleGeneratePoster = async (match: Match) => {
     if (match.status !== 'played' || !match.home_score || !match.away_score) {
       setMessage({ type: 'error', text: 'Poster hanya bisa dibuat untuk pertandingan yang sudah selesai' })
       return
     }
     setPosterMatch(match)
-    setGoalTimeline([]) // Reset timeline for poster
+    
+    // Load stats for this match to build goal timeline
+    const existingStats = await getMatchStats(match.id)
+    const timeline = existingStats
+      .filter(stat => stat.type === 'goal' && stat.minute)
+      .map(stat => ({
+        team: stat.team_name === match.home_team_name ? 'home' as const : 'away' as const,
+        playerName: stat.player_name,
+        minute: stat.minute!
+      }))
+      .sort((a, b) => a.minute - b.minute)
+    
+    setGoalTimeline(timeline)
     setShowPosterModal(true)
   }
 
@@ -868,7 +881,7 @@ export default function AdminPage() {
                       : 'border-[#262626] bg-[#161616] hover:border-[#00FF66]/50'
                   }`}
                 >
-                  <div className="font-bold text-white mb-1">Mode World Cup</div>
+                  <div className="font-bold text-white mb-1">Mode Grup Turnamen</div>
                   <div className="text-xs text-gray-400">
                     Grup + Knockout. Semua main di grup dulu, lalu sistem gugur.
                   </div>
@@ -1039,8 +1052,8 @@ export default function AdminPage() {
                       <input
                         type="number"
                         placeholder="Menit"
-                        value={goal.minute}
-                        onChange={(e) => handleUpdateGoal(index, 'minute', parseInt(e.target.value))}
+                        value={goal.minute || ''}
+                        onChange={(e) => handleUpdateGoal(index, 'minute', parseInt(e.target.value) || 0)}
                         className="bg-[#121212] border border-[#262626] text-white px-3 py-2 rounded-sm text-sm focus:outline-none focus:border-[#00FF66]"
                         min="0"
                         max="120"

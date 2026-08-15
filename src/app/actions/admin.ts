@@ -1071,7 +1071,7 @@ export async function updateMatchScore(
   matchId: string,
   homeScore: number,
   awayScore: number,
-  stats: { player_name: string; team_name: string; type: 'goal' | 'assist'; count: number }[],
+  stats: { player_name: string; team_name: string; type: 'goal' | 'assist'; count: number; minute?: number }[],
   pin: string
 ) {
   try {
@@ -1109,6 +1109,7 @@ export async function updateMatchScore(
           team_name: stat.team_name,
           type: stat.type,
           count: stat.count,
+          minute: stat.minute || null,
           created_at: serverTimestamp()
         })
       }

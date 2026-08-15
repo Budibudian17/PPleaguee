@@ -56,6 +56,7 @@ export interface Stat {
   team_name: string
   type: 'goal' | 'assist'
   count: number
+  minute?: number // Goal/assist minute
   created_at?: any // Firestore Timestamp
 }
 
