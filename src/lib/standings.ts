@@ -141,23 +141,36 @@ export async function calculateStandings(): Promise<Standing[]> {
 export async function getTopScorers(limitCount: number = 10): Promise<TopScorer[]> {
   try {
     const { getDB } = await import('./firebase')
-    const { collection, getDocs, query, where, orderBy, limit } = await import('firebase/firestore')
+    const { collection, getDocs, query, where } = await import('firebase/firestore')
     const db = getDB()
 
     const statsQuery = query(
       collection(db, 'stats'),
-      where('type', '==', 'goal'),
-      orderBy('count', 'desc'),
-      limit(limitCount)
+      where('type', '==', 'goal')
     )
     const statsSnapshot = await getDocs(statsQuery)
     const stats = statsSnapshot.docs.map(doc => doc.data())
 
-    return stats.map(stat => ({
-      player_name: stat.player_name,
-      team_name: stat.team_name,
-      goals: stat.count
-    }))
+    // Aggregate by player_name and team_name
+    const playerGoals = new Map<string, { player_name: string, team_name: string, goals: number }>()
+    stats.forEach(stat => {
+      const key = `${stat.player_name}|${stat.team_name}`
+      const existing = playerGoals.get(key)
+      if (existing) {
+        existing.goals += stat.count
+      } else {
+        playerGoals.set(key, {
+          player_name: stat.player_name,
+          team_name: stat.team_name,
+          goals: stat.count
+        })
+      }
+    })
+
+    // Sort by goals descending and return top N
+    return Array.from(playerGoals.values())
+      .sort((a, b) => b.goals - a.goals)
+      .slice(0, limitCount)
   } catch (error) {
     console.error('Error fetching top scorers:', error)
     return []
@@ -167,23 +180,36 @@ export async function getTopScorers(limitCount: number = 10): Promise<TopScorer[
 export async function getTopAssists(limitCount: number = 10): Promise<TopAssist[]> {
   try {
     const { getDB } = await import('./firebase')
-    const { collection, getDocs, query, where, orderBy, limit } = await import('firebase/firestore')
+    const { collection, getDocs, query, where } = await import('firebase/firestore')
     const db = getDB()
 
     const statsQuery = query(
       collection(db, 'stats'),
-      where('type', '==', 'assist'),
-      orderBy('count', 'desc'),
-      limit(limitCount)
+      where('type', '==', 'assist')
     )
     const statsSnapshot = await getDocs(statsQuery)
     const stats = statsSnapshot.docs.map(doc => doc.data())
 
-    return stats.map(stat => ({
-      player_name: stat.player_name,
-      team_name: stat.team_name,
-      assists: stat.count
-    }))
+    // Aggregate by player_name and team_name
+    const playerAssists = new Map<string, { player_name: string, team_name: string, assists: number }>()
+    stats.forEach(stat => {
+      const key = `${stat.player_name}|${stat.team_name}`
+      const existing = playerAssists.get(key)
+      if (existing) {
+        existing.assists += stat.count
+      } else {
+        playerAssists.set(key, {
+          player_name: stat.player_name,
+          team_name: stat.team_name,
+          assists: stat.count
+        })
+      }
+    })
+
+    // Sort by assists descending and return top N
+    return Array.from(playerAssists.values())
+      .sort((a, b) => b.assists - a.assists)
+      .slice(0, limitCount)
   } catch (error) {
     console.error('Error fetching top assists:', error)
     return []

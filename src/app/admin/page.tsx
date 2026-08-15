@@ -34,11 +34,7 @@ export default function AdminPage() {
   const [leagueConfig, setLeagueConfig] = useState<LeagueConfig | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  
-  // Add game player form
-  const [selectedUserId, setSelectedUserId] = useState('')
-  const [newPlayerName, setNewPlayerName] = useState('')
-  
+
   // Custom modals
   const [showDeleteGamePlayerModal, setShowDeleteGamePlayerModal] = useState(false)
   const [deleteGamePlayerId, setDeleteGamePlayerId] = useState('')
@@ -103,30 +99,6 @@ export default function AdminPage() {
     } else {
       setMessage({ type: 'error', text: 'PIN Admin salah' })
     }
-  }
-
-  const handleAddGamePlayer = async () => {
-    if (!selectedUserId || !newPlayerName) {
-      setMessage({ type: 'error', text: 'Pilih tim dan masukkan nama pemain' })
-      return
-    }
-
-    const user = users.find(u => u.id === selectedUserId)
-    if (!user) return
-
-    setIsLoading(true)
-    const result = await addGamePlayer(selectedUserId, user.team_name, newPlayerName, adminPin)
-    
-    if (result.success) {
-      setMessage({ type: 'success', text: 'Pemain berhasil ditambahkan!' })
-      setNewPlayerName('')
-      setSelectedUserId('')
-      await loadData()
-    } else {
-      setMessage({ type: 'error', text: result.error || 'Gagal menambah pemain' })
-    }
-    
-    setIsLoading(false)
   }
 
   const handleDeleteGamePlayer = async (playerId: string) => {
@@ -617,52 +589,6 @@ export default function AdminPage() {
                   </div>
                 ))
               )}
-            </div>
-          </div>
-
-          {/* Add Game Player Section */}
-          <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#262626]">
-              <h2 className="text-lg font-bold uppercase tracking-wider">TAMBAH PEMAIN GAME</h2>
-            </div>
-            
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-2 uppercase tracking-wide">
-                  Pilih Tim
-                </label>
-                <select
-                  value={selectedUserId}
-                  onChange={(e) => setSelectedUserId(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#262626] rounded-sm px-4 py-2 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
-                >
-                  <option value="">Pilih tim</option>
-                  {users.map(user => (
-                    <option key={user.id} value={user.id}>{user.team_name} ({user.team_short_name})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-2 uppercase tracking-wide">
-                  Nama Pemain Game
-                </label>
-                <input
-                  type="text"
-                  value={newPlayerName}
-                  onChange={(e) => setNewPlayerName(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#262626] rounded-sm px-4 py-2 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
-                  placeholder="Contoh: Mbappe"
-                />
-              </div>
-
-              <button
-                onClick={handleAddGamePlayer}
-                disabled={isLoading}
-                className="w-full bg-[#00FF66] text-black font-bold uppercase tracking-wider py-3 rounded-sm hover:bg-[#00CC52] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isLoading ? 'Memproses...' : 'Tambah Pemain'}
-              </button>
             </div>
           </div>
 

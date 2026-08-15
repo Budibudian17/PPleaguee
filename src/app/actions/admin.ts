@@ -1099,10 +1099,19 @@ export async function updateMatchScore(
       await deleteDoc(doc(getDBInstance(), 'stats', statDoc.id))
     }
 
-    // Insert new stats
+    // Insert new stats and auto-add players to game_players
     if (stats.length > 0) {
       const statsRef = collection(getDBInstance(), 'stats')
+      const gamePlayersRef = collection(getDBInstance(), 'game_players')
+
+      // Get existing game players to avoid duplicates
+      const existingGamePlayersSnapshot = await getDocs(gamePlayersRef)
+      const existingPlayerNames = new Set(
+        existingGamePlayersSnapshot.docs.map(doc => doc.data().player_name)
+      )
+
       for (const stat of stats) {
+        // Add stat
         await addDoc(statsRef, {
           match_id: matchId,
           player_name: stat.player_name,
@@ -1112,6 +1121,27 @@ export async function updateMatchScore(
           minute: stat.minute || null,
           created_at: serverTimestamp()
         })
+
+        // Auto-add to game_players if not exists
+        if (!existingPlayerNames.has(stat.player_name)) {
+          // Find user_id from users collection based on team_name
+          const usersQuery = query(
+            collection(getDBInstance(), 'users'),
+            where('team_name', '==', stat.team_name)
+          )
+          const usersSnapshot = await getDocs(usersQuery)
+          const user = usersSnapshot.docs[0]
+
+          if (user) {
+            await addDoc(gamePlayersRef, {
+              user_id: user.id,
+              team_name: stat.team_name,
+              player_name: stat.player_name,
+              created_at: serverTimestamp()
+            })
+            existingPlayerNames.add(stat.player_name)
+          }
+        }
       }
     }
 

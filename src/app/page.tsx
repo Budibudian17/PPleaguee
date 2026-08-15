@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { calculateStandings, getTopScorers, getTopAssists } from '@/lib/standings'
-import { getMatches, getLeagueConfig } from '@/app/actions/admin'
+import { getMatches, getLeagueConfig, getUsers } from '@/app/actions/admin'
 import { Standing, TopScorer, TopAssist, Match, LeagueConfig } from '@/types'
 
 export default function Home() {
@@ -10,23 +10,26 @@ export default function Home() {
   const [topScorers, setTopScorers] = useState<TopScorer[]>([])
   const [topAssists, setTopAssists] = useState<TopAssist[]>([])
   const [matches, setMatches] = useState<any[]>([])
+  const [users, setUsers] = useState<any[]>([])
   const [leagueConfig, setLeagueConfig] = useState<LeagueConfig | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [standingsData, scorersData, assistsData, matchesData, configData] = await Promise.all([
+        const [standingsData, scorersData, assistsData, matchesData, usersData, configData] = await Promise.all([
           calculateStandings(),
           getTopScorers(3),
           getTopAssists(3),
           getMatches(),
+          getUsers(),
           getLeagueConfig()
         ])
         setStandings(standingsData)
         setTopScorers(scorersData)
         setTopAssists(assistsData)
         setMatches(matchesData)
+        setUsers(usersData)
         setLeagueConfig(configData as LeagueConfig | null)
       } catch (error) {
         // Error handling without console logging for security
@@ -73,13 +76,20 @@ export default function Home() {
   const groupStandings: Record<string, any[]> = {}
   Object.entries(groupMatchesByGroup).forEach(([group, matches]) => {
     const standingsMap = new Map<string, any>()
-    
+
+    // Create a map of team_name to user_name from users data
+    const teamToUserMap = new Map<string, string>()
+    users.forEach((user: any) => {
+      teamToUserMap.set(user.team_name, user.name)
+    })
+
     // First, initialize all teams from matches (regardless of status)
     matches.forEach((match: any) => {
       if (!standingsMap.has(match.home_team_name)) {
         standingsMap.set(match.home_team_name, {
           team_name: match.home_team_name,
           team_logo: match.home_team_logo,
+          user_name: teamToUserMap.get(match.home_team_name) || '',
           played: 0,
           won: 0,
           drawn: 0,
@@ -93,6 +103,7 @@ export default function Home() {
         standingsMap.set(match.away_team_name, {
           team_name: match.away_team_name,
           team_logo: match.away_team_logo,
+          user_name: teamToUserMap.get(match.away_team_name) || '',
           played: 0,
           won: 0,
           drawn: 0,
@@ -325,9 +336,12 @@ export default function Home() {
                                   <td className="px-2 sm:px-4 py-2 sm:py-3 whitespace-nowrap">
                                     <div className="flex items-center gap-2">
                                       {standing.team_logo && (
-                                        <img src={standing.team_logo} alt={standing.team_name} className="w-5 h-5 object-contain" />
+                                        <img src={standing.team_logo} alt={standing.team_name} className="w-6 h-6 object-contain" />
                                       )}
-                                      <span className="font-medium text-white text-xs sm:text-sm">{standing.team_name}</span>
+                                      <div>
+                                        <span className="font-medium text-white text-xs sm:text-sm block">{standing.team_name}</span>
+                                        <span className="text-gray-400 text-xs block">{standing.user_name}</span>
+                                      </div>
                                     </div>
                                   </td>
                                   <td className="px-2 sm:px-4 py-2 sm:py-3 text-center font-mono text-gray-400 text-xs sm:text-sm hidden sm:table-cell">{standing.played}</td>
@@ -588,8 +602,8 @@ export default function Home() {
                                 <img src={standing.team_logo} alt={standing.team_name} className="w-6 h-6 object-contain" />
                               )}
                               <div>
-                                <div className="font-medium text-white text-xs sm:text-sm">{standing.team_name}</div>
-                                <div className="text-xs text-gray-500 hidden sm:block">{standing.user_name}</div>
+                                <span className="font-medium text-white text-xs sm:text-sm block">{standing.team_name}</span>
+                                <span className="text-gray-400 text-xs block">{standing.user_name}</span>
                               </div>
                             </div>
                           </td>
