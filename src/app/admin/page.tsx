@@ -23,6 +23,7 @@ import {
 import { User, GamePlayer, Match, LeagueConfig } from '@/types'
 import ConfirmModal from '@/components/ConfirmModal'
 import Alert from '@/components/Alert'
+import CustomCheckbox from '@/components/CustomCheckbox'
 import MatchPoster from '@/components/MatchPoster'
 
 export default function AdminPage() {
@@ -65,7 +66,7 @@ export default function AdminPage() {
   const [homeScore, setHomeScore] = useState('')
   const [awayScore, setAwayScore] = useState('')
   const [playerStats, setPlayerStats] = useState<{ playerName: string, statType: 'goal' | 'assist', count: number }[]>([])
-  const [goalTimeline, setGoalTimeline] = useState<{ team: 'home' | 'away', playerName: string, minute: number }[]>([])
+  const [goalTimeline, setGoalTimeline] = useState<{ team: 'home' | 'away', playerName: string, minute: number, assistPlayer?: string, isPenalty?: boolean }[]>([])
 
   // Poster generation
   const [showPosterModal, setShowPosterModal] = useState(false)
@@ -213,20 +214,31 @@ export default function AdminPage() {
     setAwayScore(match.away_score?.toString() || '')
     setPlayerStats([])
     setGoalTimeline([])
-    
-    // Load existing stats for this match
+
+    // Load existing stats for this match and convert to goal timeline
     const existingStats = await getMatchStats(match.id)
-    setPlayerStats(existingStats.map(stat => ({
-      playerName: stat.player_name,
-      statType: stat.type,
-      count: stat.count
-    })))
-    
+    const goalTimelineFromStats: { team: 'home' | 'away', playerName: string, minute: number, assistPlayer?: string, isPenalty?: boolean }[] = []
+
+    existingStats.forEach(stat => {
+      if (stat.type === 'goal') {
+        const team = stat.team_name === match.home_team_name ? 'home' : 'away'
+        goalTimelineFromStats.push({
+          team,
+          playerName: stat.player_name,
+          minute: stat.minute || 0,
+          assistPlayer: '',
+          isPenalty: stat.isPenalty || false
+        })
+      }
+    })
+
+    setGoalTimeline(goalTimelineFromStats)
+
     setShowScoreModal(true)
   }
 
   const handleAddGoal = () => {
-    setGoalTimeline([...goalTimeline, { team: 'home', playerName: '', minute: 0 }])
+    setGoalTimeline([...goalTimeline, { team: 'home', playerName: '', minute: 0, assistPlayer: '', isPenalty: false }])
   }
 
   const handleRemoveGoal = (index: number) => {
@@ -234,7 +246,7 @@ export default function AdminPage() {
     setGoalTimeline(newTimeline)
   }
 
-  const handleUpdateGoal = (index: number, field: 'team' | 'playerName' | 'minute', value: any) => {
+  const handleUpdateGoal = (index: number, field: 'team' | 'playerName' | 'minute' | 'assistPlayer' | 'isPenalty', value: any) => {
     const newTimeline = [...goalTimeline]
     newTimeline[index] = { ...newTimeline[index], [field]: value }
     setGoalTimeline(newTimeline)
@@ -258,21 +270,47 @@ export default function AdminPage() {
   const handleSaveScore = async () => {
     if (!selectedMatch) return
     setIsLoading(true)
-    
+
+    // Auto-calculate scores from goal timeline
+    const homeGoals = goalTimeline.filter(g => g.team === 'home').length
+    const awayGoals = goalTimeline.filter(g => g.team === 'away').length
+
+    // Build stats from goal timeline (goals and assists)
+    const stats: { player_name: string; team_name: string; type: 'goal' | 'assist'; count: number; minute?: number; isPenalty?: boolean }[] = []
+
+    goalTimeline.forEach(goal => {
+      const teamName = goal.team === 'home' ? selectedMatch.home_team_name : selectedMatch.away_team_name
+
+      // Add goal stat
+      stats.push({
+        player_name: goal.playerName,
+        team_name: teamName,
+        type: 'goal',
+        count: 1,
+        minute: goal.minute,
+        isPenalty: goal.isPenalty
+      })
+
+      // Add assist stat if assist player is specified
+      if (goal.assistPlayer) {
+        stats.push({
+          player_name: goal.assistPlayer,
+          team_name: teamName,
+          type: 'assist',
+          count: 1,
+          minute: goal.minute
+        })
+      }
+    })
+
     const result = await updateMatchScore(
       selectedMatch.id,
-      parseInt(homeScore),
-      parseInt(awayScore),
-      playerStats.map(stat => ({
-        player_name: stat.playerName,
-        team_name: selectedMatch.home_team_name,
-        type: stat.statType,
-        count: stat.count,
-        minute: 0 // No minute for player stats, only goal timeline
-      })),
+      homeGoals,
+      awayGoals,
+      stats,
       adminPin
     )
-    
+
     if (result.success) {
       setMessage({ type: 'success', text: 'Skor berhasil diupdate!' })
       setShowScoreModal(false)
@@ -280,7 +318,7 @@ export default function AdminPage() {
     } else {
       setMessage({ type: 'error', text: result.error || 'Gagal update skor' })
     }
-    
+
     setIsLoading(false)
   }
 
@@ -342,46 +380,120 @@ export default function AdminPage() {
   }
 
   const handleGeneratePoster = async (match: Match) => {
-    if (match.status !== 'played' || !match.home_score || !match.away_score) {
-      setMessage({ type: 'error', text: 'Poster hanya bisa dibuat untuk pertandingan yang sudah selesai' })
-      return
-    }
-    setPosterMatch(match)
-    
-    // Load stats for this match to build goal timeline
-    const existingStats = await getMatchStats(match.id)
-    const timeline = existingStats
-      .filter(stat => stat.type === 'goal' && stat.minute)
-      .map(stat => ({
-        team: stat.team_name === match.home_team_name ? 'home' as const : 'away' as const,
-        playerName: stat.player_name,
-        minute: stat.minute!
-      }))
-      .sort((a, b) => a.minute - b.minute)
-    
-    setGoalTimeline(timeline)
-    setShowPosterModal(true)
+  console.log('handleGeneratePoster called for match:', match.id, match.home_team_name, 'vs', match.away_team_name);
+  console.log('Match status:', match.status, 'Scores:', match.home_score, match.away_score);
+
+  // Pastikan status played DAN skor tidak null/undefined (termasuk nilai 0)
+  const hasValidScore = 
+    match.home_score !== null && 
+    match.home_score !== undefined && 
+    match.away_score !== null && 
+    match.away_score !== undefined;
+
+  if (match.status !== 'played' || !hasValidScore) {
+    console.log(`Match not eligible for poster. Status: ${match.status} Has scores: ${hasValidScore}`);
+    setMessage({ type: 'error', text: 'Poster hanya bisa dibuat untuk pertandingan yang sudah selesai dan memiliki skor.' });
+    return;
   }
 
+  setPosterMatch(match);
+
+  try {
+    const existingStats = await getMatchStats(match.id);
+    const timeline = existingStats
+      .filter(stat => stat.type === 'goal' && typeof stat.minute === 'number')
+      .map(stat => {
+        const isHome = stat.team_name?.trim().toLowerCase() === match.home_team_name?.trim().toLowerCase();
+        return {
+          team: isHome ? ('home' as const) : ('away' as const),
+          playerName: stat.player_name,
+          minute: stat.minute!,
+          isPenalty: stat.isPenalty || false
+        };
+      })
+      .sort((a, b) => a.minute - b.minute);
+
+    setGoalTimeline(timeline);
+    setShowPosterModal(true);
+  } catch (error) {
+    setMessage({ type: 'error', text: 'Gagal memuat data pertandingan' });
+  }
+};
+
   const handleDownloadPoster = async () => {
-    if (!posterRef.current || !posterMatch) return
+    if (!posterRef.current || !posterMatch) {
+      console.error('Missing posterRef or posterMatch')
+      setMessage({ type: 'error', text: 'Data poster tidak tersedia' })
+      return
+    }
 
     setIsGeneratingPoster(true)
     try {
+      console.log('Starting poster generation for:', posterMatch.home_team_name, 'vs', posterMatch.away_team_name)
+      console.log('Poster ref element:', posterRef.current)
+
+      // Wait for all images to load
+      const images = posterRef.current.querySelectorAll('img')
+      console.log('Found images:', images.length)
+      const imagePromises = Array.from(images).map(img => {
+        if (img.complete) {
+          return Promise.resolve()
+        }
+        return new Promise<void>((resolve) => {
+          img.onload = () => resolve()
+          img.onerror = () => {
+            console.warn('Image failed to load:', img.src)
+            resolve() // Continue even if image fails
+          }
+        })
+      })
+      await Promise.all(imagePromises)
+      console.log('All images loaded')
+
+      // Wait a bit more for rendering
+      await new Promise(resolve => setTimeout(resolve, 300))
+
+      // Temporarily remove scale transform for capture
+      const parentContainer = posterRef.current.parentElement
+      const originalTransform = parentContainer?.style.transform
+      if (parentContainer) {
+        parentContainer.style.transform = 'scale(1)'
+      }
+
+      // Wait for DOM to update
+      await new Promise(resolve => setTimeout(resolve, 100))
+
       const dataUrl = await toPng(posterRef.current, {
         quality: 1,
-        backgroundColor: '#0a0a0a'
+        backgroundColor: '#0a0a0a',
+        cacheBust: true,
+        pixelRatio: 2,
+        skipAutoScale: true
       })
-      
+
+      console.log('Data URL generated, length:', dataUrl.length)
+
+      // Restore original transform
+      if (parentContainer && originalTransform) {
+        parentContainer.style.transform = originalTransform
+      }
+
       const link = document.createElement('a')
       link.download = `PPLG_${posterMatch.home_team_name}_vs_${posterMatch.away_team_name}.png`
       link.href = dataUrl
+      document.body.appendChild(link)
       link.click()
-      
+      document.body.removeChild(link)
+
       setMessage({ type: 'success', text: 'Poster berhasil didownload!' })
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error generating poster:', error)
-      setMessage({ type: 'error', text: 'Gagal generate poster' })
+      console.error('Error details:', {
+        message: error?.message || (error instanceof Event ? 'Image load error' : 'Unknown'),
+        name: error?.name,
+        stack: error?.stack
+      })
+      setMessage({ type: 'error', text: `Gagal generate poster. Coba lagi.` })
     }
     setIsGeneratingPoster(false)
   }
@@ -644,11 +756,11 @@ export default function AdminPage() {
                     if (a.phase === 'league') {
                       return a.round - b.round
                     } else {
-                      // Tournament rounds: quarter_final -> semi_final -> final
-                      const roundOrder = { 'quarter_final': 1, 'semi_final': 2, 'final': 3 }
+                      // Tournament rounds: play_in -> quarter_final -> semi_final -> final -> third_place
+                      const roundOrder: Record<string, number> = { 'play_in': 1, 'quarter_final': 2, 'semi_final': 3, 'final': 4, 'third_place': 5 }
                       const aRound = a.tournament_round || 'quarter_final'
                       const bRound = b.tournament_round || 'quarter_final'
-                      return (roundOrder[aRound as keyof typeof roundOrder] || 1) - (roundOrder[bRound as keyof typeof roundOrder] || 1)
+                      return (roundOrder[aRound] || 2) - (roundOrder[bRound] || 2)
                     }
                   })
                   .map((match) => (
@@ -918,26 +1030,12 @@ export default function AdminPage() {
             </div>
             
             <div className="p-4 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex-1 text-right">
                   <div className="font-bold text-white">{selectedMatch.home_team_name}</div>
                 </div>
                 <div className="mx-4 flex items-center gap-2">
-                  <input
-                    type="number"
-                    value={homeScore}
-                    onChange={(e) => setHomeScore(e.target.value)}
-                    className="w-16 bg-[#161616] border border-[#262626] text-white text-center font-mono font-bold py-2 rounded-sm focus:outline-none focus:border-[#00FF66]"
-                    min="0"
-                  />
-                  <span className="text-gray-400">-</span>
-                  <input
-                    type="number"
-                    value={awayScore}
-                    onChange={(e) => setAwayScore(e.target.value)}
-                    className="w-16 bg-[#161616] border border-[#262626] text-white text-center font-mono font-bold py-2 rounded-sm focus:outline-none focus:border-[#00FF66]"
-                    min="0"
-                  />
+                  <span className="text-gray-400">Skor otomatis dari Goal Timeline</span>
                 </div>
                 <div className="flex-1 text-left">
                   <div className="font-bold text-white">{selectedMatch.away_team_name}</div>
@@ -959,7 +1057,7 @@ export default function AdminPage() {
                 
                 {goalTimeline.map((goal, index) => (
                   <div key={index} className="bg-[#161616] border border-[#262626] rounded-sm p-3 mb-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-2">
                       <select
                         value={goal.team}
                         onChange={(e) => handleUpdateGoal(index, 'team', e.target.value)}
@@ -984,58 +1082,24 @@ export default function AdminPage() {
                         min="0"
                         max="120"
                       />
+                      <input
+                        type="text"
+                        placeholder="Assist (opsional)"
+                        value={goal.assistPlayer || ''}
+                        onChange={(e) => handleUpdateGoal(index, 'assistPlayer', e.target.value)}
+                        className="bg-[#121212] border border-[#262626] text-white px-3 py-2 rounded-sm text-sm focus:outline-none focus:border-[#00FF66]"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CustomCheckbox
+                        id={`penalty-${index}`}
+                        checked={goal.isPenalty || false}
+                        onChange={(checked) => handleUpdateGoal(index, 'isPenalty', checked)}
+                        label="Gol Penalti"
+                      />
                     </div>
                     <button
                       onClick={() => handleRemoveGoal(index)}
-                      className="text-red-500 text-xs hover:text-red-400 transition-colors"
-                    >
-                      Hapus
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="border-t border-[#262626] pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">
-                    STATISTIK PEMAIN
-                  </h3>
-                  <button
-                    onClick={handleAddPlayerStat}
-                    className="bg-[#00FF66] text-black font-bold uppercase tracking-wider py-1 px-3 rounded-sm hover:bg-[#00CC52] transition-colors text-xs"
-                  >
-                    + Tambah
-                  </button>
-                </div>
-                
-                {playerStats.map((stat, index) => (
-                  <div key={index} className="bg-[#161616] border border-[#262626] rounded-sm p-3 mb-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
-                      <input
-                        type="text"
-                        placeholder="Nama Pemain"
-                        value={stat.playerName}
-                        onChange={(e) => handleUpdatePlayerStat(index, 'playerName', e.target.value)}
-                        className="bg-[#121212] border border-[#262626] text-white px-3 py-2 rounded-sm text-sm focus:outline-none focus:border-[#00FF66]"
-                      />
-                      <select
-                        value={stat.statType}
-                        onChange={(e) => handleUpdatePlayerStat(index, 'statType', e.target.value)}
-                        className="bg-[#121212] border border-[#262626] text-white px-3 py-2 rounded-sm text-sm focus:outline-none focus:border-[#00FF66]"
-                      >
-                        <option value="goal">Gol</option>
-                        <option value="assist">Assist</option>
-                      </select>
-                      <input
-                        type="number"
-                        value={stat.count}
-                        onChange={(e) => handleUpdatePlayerStat(index, 'count', parseInt(e.target.value))}
-                        className="bg-[#121212] border border-[#262626] text-white px-3 py-2 rounded-sm text-sm focus:outline-none focus:border-[#00FF66]"
-                        min="1"
-                      />
-                    </div>
-                    <button
-                      onClick={() => handleRemovePlayerStat(index)}
                       className="text-red-500 text-xs hover:text-red-400 transition-colors"
                     >
                       Hapus
@@ -1067,7 +1131,7 @@ export default function AdminPage() {
       {/* Poster Modal */}
       {showPosterModal && posterMatch && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50 overflow-x-auto">
-          <div className="bg-[#121212] border border-[#262626] rounded-sm max-w-5xl w-full">
+          <div className="bg-[#121212] border border-[#262626] rounded-sm max-w-3xl w-full">
             <div className="px-4 py-3 border-b border-[#262626] flex items-center justify-between">
               <h2 className="text-lg font-bold uppercase tracking-wider">
                 POSTER PERTANDINGAN
@@ -1083,8 +1147,8 @@ export default function AdminPage() {
             <div className="p-4 space-y-4">
               {/* Poster Preview */}
               <div className="flex justify-center overflow-x-auto">
-                <div className="transform scale-75 origin-top">
-                  <div ref={posterRef}>
+                <div className="transform scale-50 origin-top sm:scale-75 md:scale-100" id="poster-preview-container">
+                  <div ref={posterRef} className="transform scale-100 origin-top">
                     <MatchPoster
                       homeTeamName={posterMatch.home_team_name}
                       awayTeamName={posterMatch.away_team_name}
@@ -1094,7 +1158,7 @@ export default function AdminPage() {
                       awayScore={posterMatch.away_score || 0}
                       round={posterMatch.round}
                       phase={posterMatch.phase}
-                      date={new Date(posterMatch.updated_at || '').toLocaleDateString('id-ID', {
+                      date={new Date().toLocaleDateString('id-ID', {
                         day: 'numeric',
                         month: 'long',
                         year: 'numeric'
