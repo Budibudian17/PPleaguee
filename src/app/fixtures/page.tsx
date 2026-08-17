@@ -99,10 +99,20 @@ export default function FixturesPage() {
     // For World Cup mode, calculate group standings to show bye teams in semifinal
     let groupATop1User = null
     let groupBTop1User = null
+    let totalParticipants = 0
+
     if (leagueConfig?.tournament_mode === 'worldcup') {
       const groupMatches = matches.filter(m => m.phase === 'group')
       const groupAStandings = new Map<string, { points: number, goalDiff: number, goalsFor: number, teamName: string, teamLogo: string }>()
       const groupBStandings = new Map<string, { points: number, goalDiff: number, goalsFor: number, teamName: string, teamLogo: string }>()
+
+      // Count unique participants
+      const participantSet = new Set<string>()
+      groupMatches.forEach((match: any) => {
+        participantSet.add(match.home_user_id)
+        participantSet.add(match.away_user_id)
+      })
+      totalParticipants = participantSet.size
 
       groupMatches.forEach((match: any) => {
         const standings = match.group === 'A' ? groupAStandings : groupBStandings
@@ -152,11 +162,11 @@ export default function FixturesPage() {
     const sfRight = sf[1]
 
     // Create placeholder semifinal matches for World Cup mode if they don't exist
-    const createPlaceholderSemi = (byeTeam: any) => ({
+    const createPlaceholderSemi = (byeTeam: any, opponentLabel: string = 'Pemenang QF') => ({
       id: 'placeholder',
       home_user_id: null,
       away_user_id: byeTeam?.id,
-      home_team_name: 'Pemenang QF',
+      home_team_name: opponentLabel,
       away_team_name: byeTeam?.teamName || 'TBD',
       home_team_logo: '',
       away_team_logo: byeTeam?.teamLogo || '',
@@ -165,8 +175,11 @@ export default function FixturesPage() {
       away_score: null
     })
 
-    const displaySfLeft = sfLeft || (groupATop1User ? createPlaceholderSemi(groupATop1User) : null)
-    const displaySfRight = sfRight || (groupBTop1User ? createPlaceholderSemi(groupBTop1User) : null)
+    // For 4 people: show top 1 from each group as semifinalists (no QF)
+    // For 6 people: show bye teams as semifinalists
+    // For 5, 7, 8 people: show QF winners as semifinalists
+    const displaySfLeft = sfLeft || (groupATop1User && (totalParticipants === 4 || totalParticipants === 6) ? createPlaceholderSemi(groupATop1User, totalParticipants === 4 ? 'Top 1 Grup B' : 'Pemenang QF') : null)
+    const displaySfRight = sfRight || (groupBTop1User && (totalParticipants === 4 || totalParticipants === 6) ? createPlaceholderSemi(groupBTop1User, totalParticipants === 4 ? 'Top 1 Grup A' : 'Pemenang QF') : null)
 
     return (
       <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">

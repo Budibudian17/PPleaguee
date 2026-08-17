@@ -638,137 +638,350 @@ export async function generateNextTournamentRound(pin: string) {
         standings.set(match.away_user_id, awayStanding)
       })
 
-      // Get top 3 from each group
-      const getTop3 = (standings: Map<string, any>) => {
-        return Array.from(standings.entries())
-          .sort((a, b) => {
-            if (b[1].points !== a[1].points) return b[1].points - a[1].points
-            if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
-            return b[1].goalsFor - a[1].goalsFor
-          })
-          .slice(0, 3)
-          .map(entry => entry[0])
-      }
-
-      const groupATop3 = getTop3(groupAStandings)
-      const groupBTop3 = getTop3(groupBStandings)
-
-      if (groupATop3.length < 3 || groupBTop3.length < 3) {
-        return { success: false, error: 'Need at least 3 teams in each group for World Cup Extended' }
-      }
-
+      // Get total participants
       const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
       const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      const totalParticipants = users.length
 
-      const groupAUsers = groupATop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-      const groupBUsers = groupBTop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+      // Determine qualification logic based on participant count
+      let qualifiedTeams: any[] = []
+      let hasByeSystem = false
 
-      // Combine top 3 from both groups (6 teams total)
-      // Order: Group A 1st, Group B 1st, Group A 2nd, Group B 2nd, Group A 3rd, Group B 3rd
-      const allQualified = [
-        groupAUsers[0], // Group A 1st - Bye to Semifinal
-        groupBUsers[0], // Group B 1st - Bye to Semifinal
-        groupAUsers[1], // Group A 2nd
-        groupBUsers[1], // Group B 2nd
-        groupAUsers[2], // Group A 3rd
-        groupBUsers[2]  // Group B 3rd
-      ]
-      const homeAway = config?.home_away || false
+      if (totalParticipants === 4) {
+        // 4 people: Top 1 from each group (2 teams) -> Skip QF, go to SF
+        const getTop1 = (standings: Map<string, any>) => {
+          return Array.from(standings.entries())
+            .sort((a, b) => {
+              if (b[1].points !== a[1].points) return b[1].points - a[1].points
+              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
+              return b[1].goalsFor - a[1].goalsFor
+            })
+            .slice(0, 1)
+            .map(entry => entry[0])
+        }
 
-      // Generate quarter finals with Bye system:
-      // Top 1 from each group gets bye to semifinal
-      // Quarter 1: Group A 2nd vs Group B 3rd
-      // Quarter 2: Group B 2nd vs Group A 3rd
-      const quarterFinals = []
-      if (homeAway) {
-        quarterFinals.push({
-          home_user_id: allQualified[2].id,
-          away_user_id: allQualified[5].id,
-          home_team_name: allQualified[2].team_name,
-          away_team_name: allQualified[5].team_name,
-          home_team_logo: allQualified[2].team_logo || '',
-          away_team_logo: allQualified[5].team_logo || '',
-          home_team_short_name: allQualified[2].team_short_name || '',
-          away_team_short_name: allQualified[5].team_short_name || '',
-          status: 'scheduled',
-          round: 2,
-          phase: 'tournament',
-          tournament_round: 'quarter_final'
-        })
-        quarterFinals.push({
-          home_user_id: allQualified[5].id,
-          away_user_id: allQualified[2].id,
-          home_team_name: allQualified[5].team_name,
-          away_team_name: allQualified[2].team_name,
-          home_team_logo: allQualified[5].team_logo || '',
-          away_team_logo: allQualified[2].team_logo || '',
-          home_team_short_name: allQualified[5].team_short_name || '',
-          away_team_short_name: allQualified[2].team_short_name || '',
-          status: 'scheduled',
-          round: 2,
-          phase: 'tournament',
-          tournament_round: 'quarter_final'
-        })
-        quarterFinals.push({
-          home_user_id: allQualified[3].id,
-          away_user_id: allQualified[4].id,
-          home_team_name: allQualified[3].team_name,
-          away_team_name: allQualified[4].team_name,
-          home_team_logo: allQualified[3].team_logo || '',
-          away_team_logo: allQualified[4].team_logo || '',
-          home_team_short_name: allQualified[3].team_short_name || '',
-          away_team_short_name: allQualified[4].team_short_name || '',
-          status: 'scheduled',
-          round: 2,
-          phase: 'tournament',
-          tournament_round: 'quarter_final'
-        })
-        quarterFinals.push({
-          home_user_id: allQualified[4].id,
-          away_user_id: allQualified[3].id,
-          home_team_name: allQualified[4].team_name,
-          away_team_name: allQualified[3].team_name,
-          home_team_logo: allQualified[4].team_logo || '',
-          away_team_logo: allQualified[3].team_logo || '',
-          home_team_short_name: allQualified[4].team_short_name || '',
-          away_team_short_name: allQualified[3].team_short_name || '',
-          status: 'scheduled',
-          round: 2,
-          phase: 'tournament',
-          tournament_round: 'quarter_final'
-        })
+        const groupATop1 = getTop1(groupAStandings)
+        const groupBTop1 = getTop1(groupBStandings)
+
+        if (groupATop1.length < 1 || groupBTop1.length < 1) {
+          return { success: false, error: 'Need at least 1 team in each group' }
+        }
+
+        const groupAUsers = groupATop1.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+        const groupBUsers = groupBTop1.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+
+        qualifiedTeams = [groupAUsers[0], groupBUsers[0]]
+        hasByeSystem = false
+
+        // Generate semi finals directly (skip QF)
+        const homeAway = config?.home_away || false
+        const semiFinals = []
+
+        if (homeAway) {
+          semiFinals.push({
+            home_user_id: qualifiedTeams[0].id,
+            away_user_id: qualifiedTeams[1].id,
+            home_team_name: qualifiedTeams[0].team_name,
+            away_team_name: qualifiedTeams[1].team_name,
+            home_team_logo: qualifiedTeams[0].team_logo || '',
+            away_team_logo: qualifiedTeams[1].team_logo || '',
+            home_team_short_name: qualifiedTeams[0].team_short_name || '',
+            away_team_short_name: qualifiedTeams[1].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'semi_final'
+          })
+          semiFinals.push({
+            home_user_id: qualifiedTeams[1].id,
+            away_user_id: qualifiedTeams[0].id,
+            home_team_name: qualifiedTeams[1].team_name,
+            away_team_name: qualifiedTeams[0].team_name,
+            home_team_logo: qualifiedTeams[1].team_logo || '',
+            away_team_logo: qualifiedTeams[0].team_logo || '',
+            home_team_short_name: qualifiedTeams[1].team_short_name || '',
+            away_team_short_name: qualifiedTeams[0].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'semi_final'
+          })
+        } else {
+          semiFinals.push({
+            home_user_id: qualifiedTeams[0].id,
+            away_user_id: qualifiedTeams[1].id,
+            home_team_name: qualifiedTeams[0].team_name,
+            away_team_name: qualifiedTeams[1].team_name,
+            home_team_logo: qualifiedTeams[0].team_logo || '',
+            away_team_logo: qualifiedTeams[1].team_logo || '',
+            home_team_short_name: qualifiedTeams[0].team_short_name || '',
+            away_team_short_name: qualifiedTeams[1].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'semi_final'
+          })
+        }
+
+        for (const match of semiFinals) {
+          await addDoc(collection(getDBInstance(), 'matches'), {
+            ...match,
+            updated_at: serverTimestamp()
+          })
+        }
+
+        return { success: true }
+      } else if (totalParticipants === 6) {
+        // 6 people: Top 1 from each group (bye to SF), Top 2-3 to QF
+        const getTop3 = (standings: Map<string, any>) => {
+          return Array.from(standings.entries())
+            .sort((a, b) => {
+              if (b[1].points !== a[1].points) return b[1].points - a[1].points
+              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
+              return b[1].goalsFor - a[1].goalsFor
+            })
+            .slice(0, 3)
+            .map(entry => entry[0])
+        }
+
+        const groupATop3 = getTop3(groupAStandings)
+        const groupBTop3 = getTop3(groupBStandings)
+
+        if (groupATop3.length < 3 || groupBTop3.length < 3) {
+          return { success: false, error: 'Need at least 3 teams in each group for World Cup Extended' }
+        }
+
+        const groupAUsers = groupATop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+        const groupBUsers = groupBTop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+
+        // Order: Group A 1st, Group B 1st, Group A 2nd, Group B 2nd, Group A 3rd, Group B 3rd
+        qualifiedTeams = [
+          groupAUsers[0], // Group A 1st - Bye to Semifinal
+          groupBUsers[0], // Group B 1st - Bye to Semifinal
+          groupAUsers[1], // Group A 2nd
+          groupBUsers[1], // Group B 2nd
+          groupAUsers[2], // Group A 3rd
+          groupBUsers[2]  // Group B 3rd
+        ]
+        hasByeSystem = true
       } else {
-        quarterFinals.push({
-          home_user_id: allQualified[2].id,
-          away_user_id: allQualified[5].id,
-          home_team_name: allQualified[2].team_name,
-          away_team_name: allQualified[5].team_name,
-          home_team_logo: allQualified[2].team_logo || '',
-          away_team_logo: allQualified[5].team_logo || '',
-          home_team_short_name: allQualified[2].team_short_name || '',
-          away_team_short_name: allQualified[5].team_short_name || '',
-          status: 'scheduled',
-          round: 2,
-          phase: 'tournament',
-          tournament_round: 'quarter_final'
-        })
-        quarterFinals.push({
-          home_user_id: allQualified[3].id,
-          away_user_id: allQualified[4].id,
-          home_team_name: allQualified[3].team_name,
-          away_team_name: allQualified[4].team_name,
-          home_team_logo: allQualified[3].team_logo || '',
-          away_team_logo: allQualified[4].team_logo || '',
-          home_team_short_name: allQualified[3].team_short_name || '',
-          away_team_short_name: allQualified[4].team_short_name || '',
-          status: 'scheduled',
-          round: 2,
-          phase: 'tournament',
-          tournament_round: 'quarter_final'
-        })
+        // 5, 7, 8 people: Top 2 from each group (4 teams) -> QF -> SF -> F
+        const getTop2 = (standings: Map<string, any>) => {
+          return Array.from(standings.entries())
+            .sort((a, b) => {
+              if (b[1].points !== a[1].points) return b[1].points - a[1].points
+              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
+              return b[1].goalsFor - a[1].goalsFor
+            })
+            .slice(0, 2)
+            .map(entry => entry[0])
+        }
+
+        const groupATop2 = getTop2(groupAStandings)
+        const groupBTop2 = getTop2(groupBStandings)
+
+        if (groupATop2.length < 2 || groupBTop2.length < 2) {
+          return { success: false, error: 'Need at least 2 teams in each group' }
+        }
+
+        const groupAUsers = groupATop2.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+        const groupBUsers = groupBTop2.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+
+        // Order: Group A 1st, Group B 2nd, Group B 1st, Group A 2nd (cross bracket)
+        qualifiedTeams = [
+          groupAUsers[0], // Group A 1st
+          groupBUsers[1], // Group B 2nd
+          groupBUsers[0], // Group B 1st
+          groupAUsers[1]  // Group A 2nd
+        ]
+        hasByeSystem = false
       }
 
-      for (const match of quarterFinals) {
+      const homeAway = config?.home_away || false
+
+      // Generate quarter finals (only for 5, 7, 8 people cases)
+      const quarterFinalMatches = []
+      if (!hasByeSystem) {
+        // Standard QF: 4 teams, 2 matches
+        if (homeAway) {
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[0].id,
+            away_user_id: qualifiedTeams[1].id,
+            home_team_name: qualifiedTeams[0].team_name,
+            away_team_name: qualifiedTeams[1].team_name,
+            home_team_logo: qualifiedTeams[0].team_logo || '',
+            away_team_logo: qualifiedTeams[1].team_logo || '',
+            home_team_short_name: qualifiedTeams[0].team_short_name || '',
+            away_team_short_name: qualifiedTeams[1].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[1].id,
+            away_user_id: qualifiedTeams[0].id,
+            home_team_name: qualifiedTeams[1].team_name,
+            away_team_name: qualifiedTeams[0].team_name,
+            home_team_logo: qualifiedTeams[1].team_logo || '',
+            away_team_logo: qualifiedTeams[0].team_logo || '',
+            home_team_short_name: qualifiedTeams[1].team_short_name || '',
+            away_team_short_name: qualifiedTeams[0].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[2].id,
+            away_user_id: qualifiedTeams[3].id,
+            home_team_name: qualifiedTeams[2].team_name,
+            away_team_name: qualifiedTeams[3].team_name,
+            home_team_logo: qualifiedTeams[2].team_logo || '',
+            away_team_logo: qualifiedTeams[3].team_logo || '',
+            home_team_short_name: qualifiedTeams[2].team_short_name || '',
+            away_team_short_name: qualifiedTeams[3].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[3].id,
+            away_user_id: qualifiedTeams[2].id,
+            home_team_name: qualifiedTeams[3].team_name,
+            away_team_name: qualifiedTeams[2].team_name,
+            home_team_logo: qualifiedTeams[3].team_logo || '',
+            away_team_logo: qualifiedTeams[2].team_logo || '',
+            home_team_short_name: qualifiedTeams[3].team_short_name || '',
+            away_team_short_name: qualifiedTeams[2].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+        } else {
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[0].id,
+            away_user_id: qualifiedTeams[1].id,
+            home_team_name: qualifiedTeams[0].team_name,
+            away_team_name: qualifiedTeams[1].team_name,
+            home_team_logo: qualifiedTeams[0].team_logo || '',
+            away_team_logo: qualifiedTeams[1].team_logo || '',
+            home_team_short_name: qualifiedTeams[0].team_short_name || '',
+            away_team_short_name: qualifiedTeams[1].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[2].id,
+            away_user_id: qualifiedTeams[3].id,
+            home_team_name: qualifiedTeams[2].team_name,
+            away_team_name: qualifiedTeams[3].team_name,
+            home_team_logo: qualifiedTeams[2].team_logo || '',
+            away_team_logo: qualifiedTeams[3].team_logo || '',
+            home_team_short_name: qualifiedTeams[2].team_short_name || '',
+            away_team_short_name: qualifiedTeams[3].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+        }
+      } else {
+        // Bye system (6 people): 2 QF matches
+        if (homeAway) {
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[2].id,
+            away_user_id: qualifiedTeams[5].id,
+            home_team_name: qualifiedTeams[2].team_name,
+            away_team_name: qualifiedTeams[5].team_name,
+            home_team_logo: qualifiedTeams[2].team_logo || '',
+            away_team_logo: qualifiedTeams[5].team_logo || '',
+            home_team_short_name: qualifiedTeams[2].team_short_name || '',
+            away_team_short_name: qualifiedTeams[5].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[5].id,
+            away_user_id: qualifiedTeams[2].id,
+            home_team_name: qualifiedTeams[5].team_name,
+            away_team_name: qualifiedTeams[2].team_name,
+            home_team_logo: qualifiedTeams[5].team_logo || '',
+            away_team_logo: qualifiedTeams[2].team_logo || '',
+            home_team_short_name: qualifiedTeams[5].team_short_name || '',
+            away_team_short_name: qualifiedTeams[2].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[3].id,
+            away_user_id: qualifiedTeams[4].id,
+            home_team_name: qualifiedTeams[3].team_name,
+            away_team_name: qualifiedTeams[4].team_name,
+            home_team_logo: qualifiedTeams[3].team_logo || '',
+            away_team_logo: qualifiedTeams[4].team_logo || '',
+            home_team_short_name: qualifiedTeams[3].team_short_name || '',
+            away_team_short_name: qualifiedTeams[4].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[4].id,
+            away_user_id: qualifiedTeams[3].id,
+            home_team_name: qualifiedTeams[4].team_name,
+            away_team_name: qualifiedTeams[3].team_name,
+            home_team_logo: qualifiedTeams[4].team_logo || '',
+            away_team_logo: qualifiedTeams[3].team_logo || '',
+            home_team_short_name: qualifiedTeams[4].team_short_name || '',
+            away_team_short_name: qualifiedTeams[3].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+        } else {
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[2].id,
+            away_user_id: qualifiedTeams[5].id,
+            home_team_name: qualifiedTeams[2].team_name,
+            away_team_name: qualifiedTeams[5].team_name,
+            home_team_logo: qualifiedTeams[2].team_logo || '',
+            away_team_logo: qualifiedTeams[5].team_logo || '',
+            home_team_short_name: qualifiedTeams[2].team_short_name || '',
+            away_team_short_name: qualifiedTeams[5].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+          quarterFinalMatches.push({
+            home_user_id: qualifiedTeams[3].id,
+            away_user_id: qualifiedTeams[4].id,
+            home_team_name: qualifiedTeams[3].team_name,
+            away_team_name: qualifiedTeams[4].team_name,
+            home_team_logo: qualifiedTeams[3].team_logo || '',
+            away_team_logo: qualifiedTeams[4].team_logo || '',
+            home_team_short_name: qualifiedTeams[3].team_short_name || '',
+            away_team_short_name: qualifiedTeams[4].team_short_name || '',
+            status: 'scheduled',
+            round: 2,
+            phase: 'tournament',
+            tournament_round: 'quarter_final'
+          })
+        }
+      }
+
+      for (const match of quarterFinalMatches) {
         await addDoc(collection(getDBInstance(), 'matches'), {
           ...match,
           updated_at: serverTimestamp()
@@ -898,42 +1111,122 @@ export async function generateNextTournamentRound(pin: string) {
 
     // Handle quarter finals completion
     const isWorldCupExtended = config?.tournament_mode === 'worldcup'
-    const requiredQuarterFinals = isWorldCupExtended ? 2 : 4
+    const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+    const totalParticipants = usersSnapshot.docs.length
 
-    if (quarterFinals.length > 0 && quarterFinalsCompleted < requiredQuarterFinals) {
+    // For 4 people in World Cup mode, skip QF check (no QF matches)
+    let requiredQuarterFinals = isWorldCupExtended ? 2 : 4
+    if (isWorldCupExtended && totalParticipants === 4) {
+      requiredQuarterFinals = 0 // No QF for 4 people
+    }
+
+    if (quarterFinals.length > 0 && quarterFinalsCompleted < quarterFinals.length) {
       return { success: false, error: 'Complete all quarter finals first' }
     }
 
-    // Generate semi finals after quarter finals
-    if (quarterFinalsCompleted >= requiredQuarterFinals && semiFinals.length === 0) {
+    // Generate semi finals after quarter finals (or directly after group stage for 4 people)
+    const shouldGenerateSemiFinals = (totalParticipants === 4 && quarterFinals.length === 0 && semiFinals.length === 0) ||
+                                      (quarterFinalsCompleted >= requiredQuarterFinals && semiFinals.length === 0)
 
-      const quarterFinalWinners = quarterFinals
-        .filter(m => m.status === 'played')
-        .map(m => {
-          // For home-away, calculate aggregate
-          if (quarterFinals.length > quarterFinals.length / 2) {
-            const homeAwayPair = quarterFinals.filter(qf =>
-              (qf.home_user_id === m.home_user_id && qf.away_user_id === m.away_user_id) ||
-              (qf.home_user_id === m.away_user_id && qf.away_user_id === m.home_user_id)
-            )
-            const aggregateHome = homeAwayPair.reduce((sum, qf) => sum + (qf.home_score || 0), 0)
-            const aggregateAway = homeAwayPair.reduce((sum, qf) => sum + (qf.away_score || 0), 0)
-            return aggregateHome > aggregateAway ? m.home_user_id : m.away_user_id
+    if (shouldGenerateSemiFinals) {
+
+      // For 4 people case: get top 1 from each group directly (no QF)
+      let semiFinalists: any[] = []
+      if (totalParticipants === 4 && isWorldCupExtended) {
+        const groupMatchesQuery = query(
+          collection(getDBInstance(), 'matches'),
+          where('phase', '==', 'group')
+        )
+        const groupSnapshot = await getDocs(groupMatchesQuery)
+        const groupMatches = groupSnapshot.docs.map(doc => doc.data())
+
+        const groupAStandings = new Map<string, { points: number, goalDiff: number, goalsFor: number }>()
+        const groupBStandings = new Map<string, { points: number, goalDiff: number, goalsFor: number }>()
+
+        groupMatches.forEach(match => {
+          const standings = match.group === 'A' ? groupAStandings : groupBStandings
+          const homeStanding = standings.get(match.home_user_id) || { points: 0, goalDiff: 0, goalsFor: 0 }
+          const awayStanding = standings.get(match.away_user_id) || { points: 0, goalDiff: 0, goalsFor: 0 }
+
+          const homeScore = match.home_score || 0
+          const awayScore = match.away_score || 0
+
+          homeStanding.goalsFor += homeScore
+          awayStanding.goalsFor += awayScore
+          homeStanding.goalDiff += homeScore - awayScore
+          awayStanding.goalDiff += awayScore - homeScore
+
+          if (homeScore > awayScore) {
+            homeStanding.points += 3
+          } else if (homeScore < awayScore) {
+            awayStanding.points += 3
+          } else {
+            homeStanding.points += 1
+            awayStanding.points += 1
           }
-          return m.home_score > m.away_score ? m.home_user_id : m.away_user_id
+
+          standings.set(match.home_user_id, homeStanding)
+          standings.set(match.away_user_id, awayStanding)
         })
-        .filter((value, index, self) => self.indexOf(value) === index)
 
-      if (quarterFinalWinners.length < 2) {
-        return { success: false, error: 'Need at least 2 quarter final winners' }
+        const getTop1 = (standings: Map<string, any>) => {
+          return Array.from(standings.entries())
+            .sort((a, b) => {
+              if (b[1].points !== a[1].points) return b[1].points - a[1].points
+              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
+              return b[1].goalsFor - a[1].goalsFor
+            })
+            .slice(0, 1)
+            .map(entry => entry[0])
+        }
+
+        const groupATop1 = getTop1(groupAStandings)[0]
+        const groupBTop1 = getTop1(groupBStandings)[0]
+
+        const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+        const groupAUser = users.find((u: any) => u.id === groupATop1) as any
+        const groupBUser = users.find((u: any) => u.id === groupBTop1) as any
+
+        if (!groupAUser || !groupBUser) {
+          return { success: false, error: 'Group winners not found' }
+        }
+
+        semiFinalists = [groupAUser, groupBUser]
+      } else {
+        // Standard case: get QF winners
+        const quarterFinalWinners = quarterFinals
+          .filter(m => m.status === 'played')
+          .map(m => {
+            // For home-away, calculate aggregate
+            if (quarterFinals.length > quarterFinals.length / 2) {
+              const homeAwayPair = quarterFinals.filter(qf =>
+                (qf.home_user_id === m.home_user_id && qf.away_user_id === m.away_user_id) ||
+                (qf.home_user_id === m.away_user_id && qf.away_user_id === m.home_user_id)
+              )
+              const aggregateHome = homeAwayPair.reduce((sum, qf) => sum + (qf.home_score || 0), 0)
+              const aggregateAway = homeAwayPair.reduce((sum, qf) => sum + (qf.away_score || 0), 0)
+              return aggregateHome > aggregateAway ? m.home_user_id : m.away_user_id
+            }
+            return m.home_score > m.away_score ? m.home_user_id : m.away_user_id
+          })
+          .filter((value, index, self) => self.indexOf(value) === index)
+
+        if (quarterFinalWinners.length < 2) {
+          return { success: false, error: 'Need at least 2 quarter final winners' }
+        }
+
+        const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+        semiFinalists = quarterFinalWinners.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
       }
-
-      const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
-      const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
 
       let semiFinalMatches = []
 
-      if (isWorldCupExtended) {
+      // Generate semi final matches based on participant count
+      if (isWorldCupExtended && totalParticipants === 6) {
         // 6-team tournament: Top 1 from each group got bye to semifinal
         // Get group standings to find top 1 from each group
         const groupMatchesQuery = query(
@@ -986,6 +1279,9 @@ export async function generateNextTournamentRound(pin: string) {
         const groupATop1 = getTop1(groupAStandings)[0]
         const groupBTop1 = getTop1(groupBStandings)[0]
 
+        const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
         const groupAUser = users.find((u: any) => u.id === groupATop1) as any
         const groupBUser = users.find((u: any) => u.id === groupBTop1) as any
 
@@ -993,7 +1289,7 @@ export async function generateNextTournamentRound(pin: string) {
           return { success: false, error: 'Group winners not found' }
         }
 
-        const quarterFinalistUsers = quarterFinalWinners.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+        const quarterFinalistUsers = semiFinalists
 
         // Semi 1: Winner of Quarter 1 vs Group A 1st (bye)
         // Semi 2: Winner of Quarter 2 vs Group B 1st (bye)
@@ -1028,43 +1324,45 @@ export async function generateNextTournamentRound(pin: string) {
           }
         ]
       } else {
-        // Standard 4-team tournament
-        if (quarterFinalWinners.length < 4) {
-          return { success: false, error: 'Need 4 quarter final winners' }
+        // Standard tournament (4, 5, 7, 8 people): semiFinalists already contains QF winners or group winners
+        if (semiFinalists.length < 2) {
+          return { success: false, error: 'Need at least 2 semi finalists' }
         }
-
-        const semiFinalists = quarterFinalWinners.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
 
         semiFinalMatches = [
           {
             home_user_id: semiFinalists[0]?.id,
-            away_user_id: semiFinalists[3]?.id,
+            away_user_id: semiFinalists[1]?.id,
             home_team_name: semiFinalists[0]?.team_name || '',
-            away_team_name: semiFinalists[3]?.team_name || '',
+            away_team_name: semiFinalists[1]?.team_name || '',
             home_team_logo: semiFinalists[0]?.team_logo || '',
-            away_team_logo: semiFinalists[3]?.team_logo || '',
+            away_team_logo: semiFinalists[1]?.team_logo || '',
             home_team_short_name: semiFinalists[0]?.team_short_name || '',
-            away_team_short_name: semiFinalists[3]?.team_short_name || '',
-            status: 'scheduled',
-            round: 100,
-            phase: 'tournament',
-            tournament_round: 'semi_final'
-          },
-          {
-            home_user_id: semiFinalists[1]?.id,
-            away_user_id: semiFinalists[2]?.id,
-            home_team_name: semiFinalists[1]?.team_name || '',
-            away_team_name: semiFinalists[2]?.team_name || '',
-            home_team_logo: semiFinalists[1]?.team_logo || '',
-            away_team_logo: semiFinalists[2]?.team_logo || '',
-            home_team_short_name: semiFinalists[1]?.team_short_name || '',
-            away_team_short_name: semiFinalists[2]?.team_short_name || '',
+            away_team_short_name: semiFinalists[1]?.team_short_name || '',
             status: 'scheduled',
             round: 100,
             phase: 'tournament',
             tournament_round: 'semi_final'
           }
         ]
+
+        // For 4+ QF winners, add second semi final
+        if (semiFinalists.length >= 4) {
+          semiFinalMatches.push({
+            home_user_id: semiFinalists[2]?.id,
+            away_user_id: semiFinalists[3]?.id,
+            home_team_name: semiFinalists[2]?.team_name || '',
+            away_team_name: semiFinalists[3]?.team_name || '',
+            home_team_logo: semiFinalists[2]?.team_logo || '',
+            away_team_logo: semiFinalists[3]?.team_logo || '',
+            home_team_short_name: semiFinalists[2]?.team_short_name || '',
+            away_team_short_name: semiFinalists[3]?.team_short_name || '',
+            status: 'scheduled',
+            round: 100,
+            phase: 'tournament',
+            tournament_round: 'semi_final'
+          })
+        }
       }
 
       for (const match of semiFinalMatches) {
