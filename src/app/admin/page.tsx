@@ -2,15 +2,16 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { toPng } from 'html-to-image'
-import { 
-  getUsers, 
-  getGamePlayers, 
-  getMatches, 
-  addGamePlayer, 
+import {
+  getUsers,
+  getGamePlayers,
+  getMatches,
+  addGamePlayer,
   deleteGamePlayer,
   deleteUser,
   deleteMatch,
   deleteAllData,
+  deleteAllGamePlayers,
   lockRegistrationAndGenerateSchedule,
   verifyAdminPin,
   getLeagueConfig,
@@ -18,7 +19,9 @@ import {
   startTournament,
   updateMatchScore,
   getMatchStats,
-  generateNextTournamentRound
+  generateNextTournamentRound,
+  importFC26Players,
+  getTeamPlayers
 } from '@/app/actions/admin'
 import { User, GamePlayer, Match, LeagueConfig } from '@/types'
 import ConfirmModal from '@/components/ConfirmModal'
@@ -49,10 +52,11 @@ export default function AdminPage() {
   const [showGenerateScheduleModal, setShowGenerateScheduleModal] = useState(false)
   
   const [showDeleteAllDataModal, setShowDeleteAllDataModal] = useState(false)
-  
+
   const [showCompleteLeagueModal, setShowCompleteLeagueModal] = useState(false)
   const [showStartTournamentModal, setShowStartTournamentModal] = useState(false)
   const [showNextRoundModal, setShowNextRoundModal] = useState(false)
+  const [showDeleteAllPlayersModal, setShowDeleteAllPlayersModal] = useState(false)
   
   // Home/Away toggle
   const [homeAway, setHomeAway] = useState(false)
@@ -67,6 +71,8 @@ export default function AdminPage() {
   const [awayScore, setAwayScore] = useState('')
   const [playerStats, setPlayerStats] = useState<{ playerName: string, statType: 'goal' | 'assist', count: number }[]>([])
   const [goalTimeline, setGoalTimeline] = useState<{ team: 'home' | 'away', playerName: string, minute: number, assistPlayer?: string, isPenalty?: boolean }[]>([])
+  const [homeTeamPlayers, setHomeTeamPlayers] = useState<any[]>([])
+  const [awayTeamPlayers, setAwayTeamPlayers] = useState<any[]>([])
 
   // Poster generation
   const [showPosterModal, setShowPosterModal] = useState(false)
@@ -214,6 +220,14 @@ export default function AdminPage() {
     setAwayScore(match.away_score?.toString() || '')
     setPlayerStats([])
     setGoalTimeline([])
+
+    // Load players for both teams
+    const [homePlayers, awayPlayers] = await Promise.all([
+      getTeamPlayers(match.home_team_name),
+      getTeamPlayers(match.away_team_name)
+    ])
+    setHomeTeamPlayers(homePlayers)
+    setAwayTeamPlayers(awayPlayers)
 
     // Load existing stats for this match and convert to goal timeline
     const existingStats = await getMatchStats(match.id)
@@ -498,6 +512,33 @@ export default function AdminPage() {
     setIsGeneratingPoster(false)
   }
 
+  const handleImportPlayers = async () => {
+    setIsLoading(true)
+    const result = await importFC26Players()
+    if (result.success) {
+      setMessage({ type: 'success', text: result.message || 'Import berhasil' })
+      await loadData()
+    } else {
+      setMessage({ type: 'error', text: result.error || 'Gagal import pemain' })
+    }
+    setIsLoading(false)
+  }
+
+  const handleDeleteAllPlayers = async () => {
+    setIsLoading(true)
+    const result = await deleteAllGamePlayers()
+    if (result.success) {
+      setMessage({ type: 'success', text: result.message || 'Berhasil menghapus pemain' })
+      await loadData()
+    } else {
+      setMessage({ type: 'error', text: result.error || 'Gagal menghapus pemain' })
+      if (result.error === 'Tidak ada pemain untuk dihapus') {
+        setMessage({ type: 'info', text: 'Tidak ada pemain untuk dihapus. Database sudah kosong.' })
+      }
+    }
+    setIsLoading(false)
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#000000] text-white p-4 sm:p-6 lg:p-8 flex items-center justify-center">
@@ -706,10 +747,26 @@ export default function AdminPage() {
 
           {/* Game Players Section */}
           <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#262626]">
+            <div className="px-4 py-3 border-b border-[#262626] flex items-center justify-between gap-2">
               <h2 className="text-lg font-bold uppercase tracking-wider">PEMAIN GAME ({gamePlayers.length})</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleImportPlayers}
+                  disabled={isLoading}
+                  className="bg-blue-500 text-white font-bold uppercase tracking-wider py-2 px-3 rounded-sm hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                >
+                  Import FC26
+                </button>
+                <button
+                  onClick={() => setShowDeleteAllPlayersModal(true)}
+                  disabled={isLoading || gamePlayers.length === 0}
+                  className="bg-red-500 text-white font-bold uppercase tracking-wider py-2 px-3 rounded-sm hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                >
+                  Hapus Semua
+                </button>
+              </div>
             </div>
-            
+
             <div className="divide-y divide-[#262626] max-h-96 overflow-y-auto">
               {gamePlayers.length === 0 ? (
                 <div className="px-4 py-8 text-center text-gray-500 text-sm">
@@ -719,8 +776,8 @@ export default function AdminPage() {
                 gamePlayers.map((player) => (
                   <div key={player.id} className="px-4 py-3 flex items-center justify-between">
                     <div>
-                      <div className="font-medium text-white">{player.player_name}</div>
-                      <div className="text-xs text-gray-500">{player.team_name}</div>
+                      <div className="font-medium text-white">{player.short_name || player.long_name || player.player_name}</div>
+                      <div className="text-xs text-gray-500">{player.team_name} #{player.club_jersey_number || '-'}</div>
                     </div>
                     <button
                       onClick={() => handleDeleteGamePlayer(player.id)}
@@ -1013,6 +1070,17 @@ export default function AdminPage() {
         isDangerous={false}
       />
 
+      <ConfirmModal
+        isOpen={showDeleteAllPlayersModal}
+        title="HAPUS SEMUA PEMAIN"
+        message="Ini akan menghapus SEMUA pemain game. Tindakan ini tidak bisa dibatalkan!"
+        confirmText="Hapus Semua"
+        cancelText="Batal"
+        onConfirm={handleDeleteAllPlayers}
+        onCancel={() => setShowDeleteAllPlayersModal(false)}
+        isDangerous={true}
+      />
+
       {/* Score Input Modal */}
       {showScoreModal && selectedMatch && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 overflow-x-hidden">
@@ -1066,13 +1134,18 @@ export default function AdminPage() {
                         <option value="home">Home ({selectedMatch.home_team_name})</option>
                         <option value="away">Away ({selectedMatch.away_team_name})</option>
                       </select>
-                      <input
-                        type="text"
-                        placeholder="Nama Pemain"
+                      <select
                         value={goal.playerName}
                         onChange={(e) => handleUpdateGoal(index, 'playerName', e.target.value)}
                         className="bg-[#121212] border border-[#262626] text-white px-3 py-2 rounded-sm text-sm focus:outline-none focus:border-[#00FF66]"
-                      />
+                      >
+                        <option value="">Pilih Pemain</option>
+                        {(goal.team === 'home' ? homeTeamPlayers : awayTeamPlayers).map((player) => (
+                          <option key={player.id} value={player.short_name || player.long_name || player.player_name}>
+                            {player.short_name || player.long_name || player.player_name} ({player.club_jersey_number || '-'})
+                          </option>
+                        ))}
+                      </select>
                       <input
                         type="number"
                         placeholder="Menit"

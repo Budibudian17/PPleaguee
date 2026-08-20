@@ -14,7 +14,14 @@ export interface GamePlayer {
   id: string
   user_id: string
   team_name: string
-  player_name: string
+  player_name: string // For backward compatibility
+  long_name?: string
+  short_name?: string
+  club_position?: string
+  club_jersey_number?: number
+  overall?: number
+  potential?: number
+  age?: number
   created_at: any // Firestore Timestamp
 }
 

@@ -1,16 +1,17 @@
 import { getDB } from '@/lib/firebase'
-import { 
-  collection, 
-  getDocs, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
+import {
+  collection,
+  getDocs,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
   getDoc,
-  query, 
-  where, 
-  setDoc, 
-  serverTimestamp 
+  query,
+  where,
+  setDoc,
+  serverTimestamp,
+  writeBatch
 } from 'firebase/firestore'
 
 function getDBInstance() {
@@ -21,6 +22,193 @@ const ADMIN_PIN = process.env.ADMIN_PIN || '2626'
 
 export async function verifyAdminPin(pin: string): Promise<boolean> {
   return pin === ADMIN_PIN
+}
+
+// Import FC26 players from CSV
+export async function importFC26Players() {
+  try {
+    // Fetch CSV file from public directory
+    const csvUrl = '/file/FC26_20250921.csv'
+    const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ''}${csvUrl}`)
+    const csvText = await response.text()
+
+    // Parse CSV with proper handling of quoted fields
+    const parseCSVLine = (line: string): string[] => {
+      const result: string[] = []
+      let current = ''
+      let inQuotes = false
+
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i]
+        if (char === '"') {
+          inQuotes = !inQuotes
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim())
+          current = ''
+        } else {
+          current += char
+        }
+      }
+      result.push(current.trim())
+      return result
+    }
+
+    const lines = csvText.split('\n').filter(line => line.trim())
+    const headers = parseCSVLine(lines[0])
+    const players: any[] = []
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseCSVLine(lines[i])
+      if (values.length !== headers.length) continue
+
+      const player: any = {}
+      headers.forEach((header, index) => {
+        player[header.trim()] = values[index]?.replace(/^"|"$/g, '') || ''
+      })
+
+      if (player.club_name && player.long_name) {
+        players.push(player)
+      }
+    }
+
+    // Get all registered users to match team names
+    const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+    const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+    // Create a map of team names to user IDs (case-insensitive)
+    const teamNameMap = new Map<string, string>()
+    users.forEach((user: any) => {
+      teamNameMap.set(user.team_name.toLowerCase(), user.id)
+    })
+
+    // Filter players whose clubs match registered teams
+    const matchedPlayers = players.filter(player => {
+      const clubName = player.club_name?.toLowerCase()
+      return clubName && teamNameMap.has(clubName)
+    })
+
+    // Use batch write for efficiency
+    const maxBatchSize = 500
+    let batch = writeBatch(getDBInstance())
+    let batchCount = 0
+
+    // Clear existing game_players for registered teams
+    for (const user of users) {
+      const existingPlayersQuery = query(
+        collection(getDBInstance(), 'game_players'),
+        where('team_name', '==', (user as any).team_name)
+      )
+      const existingSnapshot = await getDocs(existingPlayersQuery)
+      for (const doc of existingSnapshot.docs) {
+        batch.delete(doc.ref)
+        batchCount++
+        if (batchCount >= maxBatchSize) {
+          await batch.commit()
+          batch = writeBatch(getDBInstance())
+          batchCount = 0
+        }
+      }
+    }
+
+    // Add new players
+    for (const player of matchedPlayers) {
+      const userId = teamNameMap.get(player.club_name.toLowerCase())
+      const playerRef = doc(collection(getDBInstance(), 'game_players'))
+
+      batch.set(playerRef, {
+        player_id: player.player_id,
+        player_name: player.short_name || player.long_name, // For backward compatibility
+        short_name: player.short_name,
+        long_name: player.long_name,
+        player_positions: player.player_positions,
+        overall: parseInt(player.overall) || 0,
+        potential: parseInt(player.potential) || 0,
+        club_name: player.club_name,
+        club_position: player.club_position,
+        club_jersey_number: parseInt(player.club_jersey_number) || 0,
+        age: parseInt(player.age) || 0,
+        height_cm: parseInt(player.height_cm) || 0,
+        weight_kg: parseInt(player.weight_kg) || 0,
+        preferred_foot: player.preferred_foot,
+        user_id: userId,
+        team_name: player.club_name,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp()
+      })
+
+      batchCount++
+      if (batchCount >= maxBatchSize) {
+        await batch.commit()
+        batch = writeBatch(getDBInstance())
+        batchCount = 0
+      }
+    }
+
+    // Commit remaining operations
+    if (batchCount > 0) {
+      await batch.commit()
+    }
+
+    return {
+      success: true,
+      message: `Imported ${matchedPlayers.length} players for ${teamNameMap.size} teams`
+    }
+  } catch (error) {
+    console.error('Error importing FC26 players:', error)
+    return { success: false, error: 'Failed to import players' }
+  }
+}
+
+// Get players for a specific team
+export async function getTeamPlayers(teamName: string) {
+  try {
+    const playersQuery = query(
+      collection(getDBInstance(), 'game_players'),
+      where('team_name', '==', teamName)
+    )
+    const snapshot = await getDocs(playersQuery)
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+  } catch (error) {
+    console.error('Error fetching team players:', error)
+    return []
+  }
+}
+
+// Delete all game players
+export async function deleteAllGamePlayers() {
+  try {
+    const playersSnapshot = await getDocs(collection(getDBInstance(), 'game_players'))
+
+    if (playersSnapshot.empty) {
+      return { success: false, error: 'Tidak ada pemain untuk dihapus' }
+    }
+
+    let batch = writeBatch(getDBInstance())
+    let batchCount = 0
+    const maxBatchSize = 500
+
+    for (const doc of playersSnapshot.docs) {
+      batch.delete(doc.ref)
+      batchCount++
+      if (batchCount >= maxBatchSize) {
+        await batch.commit()
+        batch = writeBatch(getDBInstance())
+        batchCount = 0
+      }
+    }
+
+    if (batchCount > 0) {
+      await batch.commit()
+    }
+
+    return {
+      success: true,
+      message: `Berhasil menghapus ${playersSnapshot.size} pemain`
+    }
+  } catch (error) {
+    console.error('Error deleting all game players:', error)
+    return { success: false, error: 'Gagal menghapus pemain' }
+  }
 }
 
 // User Registration
