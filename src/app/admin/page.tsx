@@ -12,6 +12,7 @@ import {
   deleteMatch,
   deleteAllData,
   deleteAllGamePlayers,
+  resetTournament,
   lockRegistrationAndGenerateSchedule,
   verifyAdminPin,
   getLeagueConfig,
@@ -37,6 +38,16 @@ export default function AdminPage() {
   const [matches, setMatches] = useState<Match[]>([])
   const [leagueConfig, setLeagueConfig] = useState<LeagueConfig | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null)
+
+  // Auto-dismiss message after 5 seconds
+  useEffect(() => {
+    if (message) {
+      const timer = setTimeout(() => {
+        setMessage(null)
+      }, 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [message])
   const [isLoading, setIsLoading] = useState(false)
 
   // Custom modals
@@ -57,6 +68,7 @@ export default function AdminPage() {
   const [showStartTournamentModal, setShowStartTournamentModal] = useState(false)
   const [showNextRoundModal, setShowNextRoundModal] = useState(false)
   const [showDeleteAllPlayersModal, setShowDeleteAllPlayersModal] = useState(false)
+  const [showResetTournamentModal, setShowResetTournamentModal] = useState(false)
   
   // Home/Away toggle
   const [homeAway, setHomeAway] = useState(false)
@@ -539,6 +551,18 @@ export default function AdminPage() {
     setIsLoading(false)
   }
 
+  const handleResetTournament = async () => {
+    setIsLoading(true)
+    const result = await resetTournament(adminPin)
+    if (result.success) {
+      setMessage({ type: 'success', text: result.message || 'Berhasil mereset turnamen' })
+      await loadData()
+    } else {
+      setMessage({ type: 'error', text: result.error || 'Gagal mereset turnamen' })
+    }
+    setIsLoading(false)
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#000000] text-white p-4 sm:p-6 lg:p-8 flex items-center justify-center">
@@ -649,7 +673,7 @@ export default function AdminPage() {
                 Selesaikan Liga & Kualifikasi Top 4
               </button>
             )}
-            
+
             {leagueConfig?.tournament_mode === 'liga' && leagueConfig?.status === 'league_completed' && !leagueConfig.tournament_started && (
               <button
                 onClick={handleStartTournament}
@@ -659,7 +683,7 @@ export default function AdminPage() {
                 Mulai Turnamen
               </button>
             )}
-            
+
             {(leagueConfig?.status === 'tournament_ongoing' || leagueConfig?.status === 'group_ongoing') && (
               <button
                 onClick={handleGenerateNextRound}
@@ -667,6 +691,16 @@ export default function AdminPage() {
                 className="bg-purple-500 text-white font-bold uppercase tracking-wider py-2 px-4 rounded-sm hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
               >
                 {leagueConfig?.status === 'group_ongoing' ? 'Selesaikan Grup & Lanjut Knockout' : 'Generate Ronde Berikutnya'}
+              </button>
+            )}
+
+            {leagueConfig?.status !== 'registration' && (
+              <button
+                onClick={() => setShowResetTournamentModal(true)}
+                disabled={isLoading}
+                className="bg-red-500 text-white font-bold uppercase tracking-wider py-2 px-4 rounded-sm hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+              >
+                Reset Turnamen
               </button>
             )}
           </div>
@@ -1078,6 +1112,17 @@ export default function AdminPage() {
         cancelText="Batal"
         onConfirm={handleDeleteAllPlayers}
         onCancel={() => setShowDeleteAllPlayersModal(false)}
+        isDangerous={true}
+      />
+
+      <ConfirmModal
+        isOpen={showResetTournamentModal}
+        title="RESET TURNAMEN"
+        message="Ini akan menghapus SEMUA pertandingan dan statistik, serta mereset status turnamen ke pendaftaran. Tim dan pemain tidak akan dihapus. Tindakan ini tidak bisa dibatalkan!"
+        confirmText="Reset Turnamen"
+        cancelText="Batal"
+        onConfirm={handleResetTournament}
+        onCancel={() => setShowResetTournamentModal(false)}
         isDangerous={true}
       />
 

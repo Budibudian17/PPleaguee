@@ -211,6 +211,75 @@ export async function deleteAllGamePlayers() {
   }
 }
 
+// Reset tournament - delete all matches and reset league config to registration
+export async function resetTournament(pin: string) {
+  try {
+    if (!await verifyAdminPin(pin)) {
+      return { success: false, error: 'Invalid PIN' }
+    }
+
+    // Delete all matches
+    const matchesSnapshot = await getDocs(collection(getDBInstance(), 'matches'))
+    let batch = writeBatch(getDBInstance())
+    let batchCount = 0
+    const maxBatchSize = 500
+
+    for (const doc of matchesSnapshot.docs) {
+      batch.delete(doc.ref)
+      batchCount++
+      if (batchCount >= maxBatchSize) {
+        await batch.commit()
+        batch = writeBatch(getDBInstance())
+        batchCount = 0
+      }
+    }
+
+    if (batchCount > 0) {
+      await batch.commit()
+    }
+
+    // Delete all stats
+    const statsSnapshot = await getDocs(collection(getDBInstance(), 'stats'))
+    batch = writeBatch(getDBInstance())
+    batchCount = 0
+
+    for (const doc of statsSnapshot.docs) {
+      batch.delete(doc.ref)
+      batchCount++
+      if (batchCount >= maxBatchSize) {
+        await batch.commit()
+        batch = writeBatch(getDBInstance())
+        batchCount = 0
+      }
+    }
+
+    if (batchCount > 0) {
+      await batch.commit()
+    }
+
+    // Reset league config to registration
+    const configRef = doc(getDBInstance(), 'league_config', 'config')
+    await setDoc(configRef, {
+      id: 'config',
+      status: 'registration',
+      tournament_mode: null,
+      top_4_qualification: false,
+      qualified_teams: [],
+      tournament_started: false,
+      home_away: false,
+      updated_at: serverTimestamp()
+    }, { merge: true })
+
+    return {
+      success: true,
+      message: `Berhasil mereset turnamen. ${matchesSnapshot.size} pertandingan dan ${statsSnapshot.size} statistik dihapus.`
+    }
+  } catch (error) {
+    console.error('Error resetting tournament:', error)
+    return { success: false, error: 'Gagal mereset turnamen' }
+  }
+}
+
 // User Registration
 export async function registerUser(name: string, teamData: {
   team_name: string
@@ -1102,6 +1171,39 @@ export async function generateNextTournamentRound(pin: string) {
           groupBUsers[2]  // Group B 3rd
         ]
         hasByeSystem = true
+      } else if (totalParticipants === 9) {
+        // 9 people: Top 1 from each group (bye to SF), Top 2-3 to QF
+        const getTop3 = (standings: Map<string, any>) => {
+          return Array.from(standings.entries())
+            .sort((a, b) => {
+              if (b[1].points !== a[1].points) return b[1].points - a[1].points
+              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
+              return b[1].goalsFor - a[1].goalsFor
+            })
+            .slice(0, 3)
+            .map(entry => entry[0])
+        }
+
+        const groupATop3 = getTop3(groupAStandings)
+        const groupBTop3 = getTop3(groupBStandings)
+
+        if (groupATop3.length < 3 || groupBTop3.length < 3) {
+          return { success: false, error: 'Need at least 3 teams in each group for World Cup Extended' }
+        }
+
+        const groupAUsers = groupATop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+        const groupBUsers = groupBTop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+
+        // Order: Group A 1st, Group B 1st, Group A 2nd, Group B 2nd, Group A 3rd, Group B 3rd
+        qualifiedTeams = [
+          groupAUsers[0], // Group A 1st - Bye to Semifinal
+          groupBUsers[0], // Group B 1st - Bye to Semifinal
+          groupAUsers[1], // Group A 2nd
+          groupBUsers[1], // Group B 2nd
+          groupAUsers[2], // Group A 3rd
+          groupBUsers[2]  // Group B 3rd
+        ]
+        hasByeSystem = true
       } else {
         // 5, 7, 8 people: Top 2 from each group (4 teams) -> QF -> SF -> F
         const getTop2 = (standings: Map<string, any>) => {
@@ -1459,6 +1561,8 @@ export async function generateNextTournamentRound(pin: string) {
     let requiredQuarterFinals = isWorldCupExtended ? 2 : 4
     if (isWorldCupExtended && totalParticipants === 4) {
       requiredQuarterFinals = 0 // No QF for 4 people in World Cup
+    } else if (isWorldCupExtended && (totalParticipants === 6 || totalParticipants === 9)) {
+      requiredQuarterFinals = 2 // 2 QF matches for 6 and 9 people (bye system)
     } else if (isKnockout && totalParticipants <= 4) {
       requiredQuarterFinals = 0 // No QF for 2-4 people in knockout
     }
