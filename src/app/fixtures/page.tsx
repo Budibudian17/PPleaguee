@@ -176,10 +176,10 @@ export default function FixturesPage() {
     })
 
     // For 4 people: show top 1 from each group as semifinalists (no QF)
-    // For 6, 9 people: show bye teams as semifinalists
-    // For 5, 7, 8 people: show QF winners as semifinalists
-    const displaySfLeft = sfLeft || (groupATop1User && (totalParticipants === 4 || totalParticipants === 6 || totalParticipants === 9) ? createPlaceholderSemi(groupATop1User, totalParticipants === 4 ? 'Top 1 Grup B' : 'Pemenang QF') : null)
-    const displaySfRight = sfRight || (groupBTop1User && (totalParticipants === 4 || totalParticipants === 6 || totalParticipants === 9) ? createPlaceholderSemi(groupBTop1User, totalParticipants === 4 ? 'Top 1 Grup A' : 'Pemenang QF') : null)
+    // For 6+ people: show bye teams as semifinalists
+    // For 5 people: show QF winners as semifinalists
+    const displaySfLeft = sfLeft || (groupATop1User && (totalParticipants === 4 || totalParticipants >= 6) ? createPlaceholderSemi(groupATop1User, totalParticipants === 4 ? 'Top 1 Grup B' : 'Pemenang QF') : null)
+    const displaySfRight = sfRight || (groupBTop1User && (totalParticipants === 4 || totalParticipants >= 6) ? createPlaceholderSemi(groupBTop1User, totalParticipants === 4 ? 'Top 1 Grup A' : 'Pemenang QF') : null)
 
     return (
       <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">

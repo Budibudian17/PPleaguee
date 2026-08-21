@@ -1171,8 +1171,8 @@ export async function generateNextTournamentRound(pin: string) {
           groupBUsers[2]  // Group B 3rd
         ]
         hasByeSystem = true
-      } else if (totalParticipants === 9) {
-        // 9 people: Top 1 from each group (bye to SF), Top 2-3 to QF
+      } else if (totalParticipants >= 6) {
+        // 6-9 people: Top 1 from each group (bye to SF), Top 2-3 to QF
         const getTop3 = (standings: Map<string, any>) => {
           return Array.from(standings.entries())
             .sort((a, b) => {
@@ -1205,7 +1205,7 @@ export async function generateNextTournamentRound(pin: string) {
         ]
         hasByeSystem = true
       } else {
-        // 5, 7, 8 people: Top 2 from each group (4 teams) -> QF -> SF -> F
+        // 5 people: Top 2 from each group (4 teams) -> QF -> SF -> F
         const getTop2 = (standings: Map<string, any>) => {
           return Array.from(standings.entries())
             .sort((a, b) => {
@@ -1561,8 +1561,8 @@ export async function generateNextTournamentRound(pin: string) {
     let requiredQuarterFinals = isWorldCupExtended ? 2 : 4
     if (isWorldCupExtended && totalParticipants === 4) {
       requiredQuarterFinals = 0 // No QF for 4 people in World Cup
-    } else if (isWorldCupExtended && (totalParticipants === 6 || totalParticipants === 9)) {
-      requiredQuarterFinals = 2 // 2 QF matches for 6 and 9 people (bye system)
+    } else if (isWorldCupExtended && totalParticipants >= 6) {
+      requiredQuarterFinals = 2 // 2 QF matches for 6+ people (bye system)
     } else if (isKnockout && totalParticipants <= 4) {
       requiredQuarterFinals = 0 // No QF for 2-4 people in knockout
     }
