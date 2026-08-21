@@ -441,16 +441,22 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, mode: 'li
 function generateRoundRobinSchedule(users: any[], homeAway: boolean = false) {
   const matches: any[] = []
   const n = users.length
-  const totalRounds = homeAway ? (n - 1) * 2 : n - 1
-  const matchesPerRound = n / 2
 
-  // Create a copy of users array for rotation
-  const teams = [...users] as any[]
-  
+  // If odd number of teams, add a dummy team for bye
+  const hasDummy = n % 2 !== 0
+  const teams = hasDummy ? [...users, { id: 'dummy', team_name: 'BYE', team_logo: '', team_short_name: 'BYE' }] as any[] : [...users] as any[]
+  const totalRounds = homeAway ? (teams.length - 1) * 2 : teams.length - 1
+  const matchesPerRound = teams.length / 2
+
   for (let round = 1; round <= totalRounds; round++) {
     for (let match = 0; match < matchesPerRound; match++) {
       const home = teams[match] as any
       const away = teams[teams.length - 1 - match] as any
+
+      // Skip matches involving dummy team (bye)
+      if (home.id === 'dummy' || away.id === 'dummy') {
+        continue
+      }
 
       matches.push({
         home_user_id: home.id,
