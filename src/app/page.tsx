@@ -186,7 +186,7 @@ export default function Home() {
             FC 26 Tournament Standings
           </p>
           {leagueConfig?.tournament_mode && (
-            <div className="mt-2">
+            <div className="mt-2 flex gap-2">
               <span className={`px-2 py-1 rounded-sm text-xs font-bold uppercase ${
                 leagueConfig.tournament_mode === 'liga' ? 'bg-[#00FF66]/20 text-[#00FF66]' :
                 leagueConfig.tournament_mode === 'knockout' ? 'bg-red-500/20 text-red-500' :
@@ -194,6 +194,14 @@ export default function Home() {
               }`}>
                 {leagueConfig.tournament_mode === 'worldcup' ? 'GRUP TURNAMEN' : leagueConfig.tournament_mode}
               </span>
+              {leagueConfig.tournament_mode === 'worldcup' && leagueConfig.qualification_system && (
+                <span className={`px-2 py-1 rounded-sm text-xs font-bold uppercase ${
+                  leagueConfig.qualification_system === 'top3' ? 'bg-yellow-500/20 text-yellow-500' :
+                  'bg-purple-500/20 text-purple-500'
+                }`}>
+                  {leagueConfig.qualification_system === 'top3' ? 'TOP 3' : 'TOP 4'}
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -371,7 +379,15 @@ export default function Home() {
                           <div className="w-3 h-3 bg-[#F59E0B] rounded-sm"></div>
                           <span className="text-gray-300">Posisi 3</span>
                         </div>
-                        <span className="text-gray-500 ml-2">- Lolos Knockout</span>
+                        {leagueConfig?.qualification_system === 'top4' && (
+                          <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 bg-[#8B5CF6] rounded-sm"></div>
+                            <span className="text-gray-300">Posisi 4</span>
+                          </div>
+                        )}
+                        <span className="text-gray-500 ml-2">
+                          - Lolos {leagueConfig?.qualification_system === 'top3' ? 'Knockout (Top 1 Bye)' : 'Quarter Final'}
+                        </span>
                       </div>
                     </div>
                   </div>

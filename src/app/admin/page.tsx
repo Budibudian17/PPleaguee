@@ -79,6 +79,7 @@ export default function AdminPage() {
   
   // Tournament mode selection
   const [tournamentMode, setTournamentMode] = useState<'liga' | 'knockout' | 'worldcup'>('liga')
+  const [qualificationSystem, setQualificationSystem] = useState<'top3' | 'top4'>('top3')
   
   // Score input modal
   const [showScoreModal, setShowScoreModal] = useState(false)
@@ -197,7 +198,7 @@ export default function AdminPage() {
   const confirmGenerateSchedule = async () => {
     setShowGenerateScheduleModal(false)
     setIsLoading(true)
-    const result = await lockRegistrationAndGenerateSchedule(adminPin, tournamentMode, homeAway)
+    const result = await lockRegistrationAndGenerateSchedule(adminPin, tournamentMode, homeAway, qualificationSystem)
     
     if (result.success) {
       setMessage({ type: 'success', text: 'Jadwal lama dihapus, jadwal baru berhasil dibuat!' })
@@ -1107,6 +1108,38 @@ export default function AdminPage() {
                   Home & Away (2 Leg)
                 </label>
               </div>
+
+              {tournamentMode === 'worldcup' && (
+                <div className="pt-2">
+                  <label className="block text-xs sm:text-sm text-gray-300 mb-2 uppercase tracking-wide">
+                    Sistem Kualifikasi
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setQualificationSystem('top3')}
+                      className={`flex-1 p-3 rounded-sm border-2 transition-all text-left ${
+                        qualificationSystem === 'top3'
+                          ? 'border-[#00FF66] bg-[#00FF66]/10'
+                          : 'border-[#262626] bg-[#161616] hover:border-[#00FF66]/50'
+                      }`}
+                    >
+                      <div className="font-bold text-white text-sm mb-1">Top 3</div>
+                      <div className="text-xs text-gray-400">3 tim/grup + bye ke semifinal</div>
+                    </button>
+                    <button
+                      onClick={() => setQualificationSystem('top4')}
+                      className={`flex-1 p-3 rounded-sm border-2 transition-all text-left ${
+                        qualificationSystem === 'top4'
+                          ? 'border-[#00FF66] bg-[#00FF66]/10'
+                          : 'border-[#262626] bg-[#161616] hover:border-[#00FF66]/50'
+                      }`}
+                    >
+                      <div className="font-bold text-white text-sm mb-1">Top 4</div>
+                      <div className="text-xs text-gray-400">4 tim/grup + quarter final</div>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-3 pt-4">
                 <button

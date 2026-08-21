@@ -560,7 +560,7 @@ export async function deleteGamePlayer(playerId: string, pin: string) {
 }
 
 // Schedule Generation
-export async function lockRegistrationAndGenerateSchedule(pin: string, mode: 'liga' | 'knockout' | 'worldcup', homeAway: boolean = false) {
+export async function lockRegistrationAndGenerateSchedule(pin: string, mode: 'liga' | 'knockout' | 'worldcup', homeAway: boolean = false, qualificationSystem: 'top3' | 'top4' = 'top3') {
   try {
     if (!await verifyAdminPin(pin)) {
       return { success: false, error: 'Invalid PIN' }
@@ -577,15 +577,15 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, mode: 'li
     // Delete all existing matches
     const allMatchesQuery = query(collection(getDBInstance(), 'matches'))
     const allMatchesSnapshot = await getDocs(allMatchesQuery)
-    
+
     for (const doc of allMatchesSnapshot.docs) {
       await deleteDoc(doc.ref)
     }
-    
+
     // Delete all existing stats
     const statsRef = collection(getDBInstance(), 'stats')
     const allStatsSnapshot = await getDocs(statsRef)
-    
+
     for (const statDoc of allStatsSnapshot.docs) {
       await deleteDoc(statDoc.ref)
     }
@@ -604,7 +604,7 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, mode: 'li
       status = result.status
       qualifiedTeams = result.qualifiedTeams
     } else if (mode === 'worldcup') {
-      const result = generateWorldCupSchedule(users as any[], homeAway)
+      const result = generateWorldCupSchedule(users as any[], homeAway, qualificationSystem)
       matches = result.matches
       status = result.status
       qualifiedTeams = result.qualifiedTeams
@@ -626,6 +626,7 @@ export async function lockRegistrationAndGenerateSchedule(pin: string, mode: 'li
       status: status,
       tournament_mode: mode,
       top_4_qualification: mode === 'liga',
+      qualification_system: mode === 'worldcup' ? qualificationSystem : undefined,
       qualified_teams: qualifiedTeams,
       tournament_started: mode !== 'liga',
       home_away: homeAway,
@@ -967,21 +968,21 @@ function generateKnockoutSchedule(users: any[], homeAway: boolean = false) {
   }
 }
 
-function generateWorldCupSchedule(users: any[], homeAway: boolean = false) {
+function generateWorldCupSchedule(users: any[], homeAway: boolean = false, qualificationSystem: 'top3' | 'top4' = 'top3') {
   const matches: any[] = []
   const n = users.length
-  
+
   // Split into groups
   const groupASize = Math.ceil(n / 2)
   const groupBSize = Math.floor(n / 2)
-  
+
   const groupA = users.slice(0, groupASize)
   const groupB = users.slice(groupASize)
-  
+
   // Generate group stage matches (round robin within each group)
   const groupAMatches = generateRoundRobinSchedule(groupA, homeAway)
   const groupBMatches = generateRoundRobinSchedule(groupB, homeAway)
-  
+
   // Mark group matches
   groupAMatches.forEach(m => {
     m.phase = 'group'
@@ -993,13 +994,14 @@ function generateWorldCupSchedule(users: any[], homeAway: boolean = false) {
     m.group = 'B'
     m.tournament_round = 'group_stage'
   })
-  
+
   matches.push(...groupAMatches, ...groupBMatches)
-  
+
   return {
     matches,
     status: 'group_ongoing',
-    qualifiedTeams: []
+    qualifiedTeams: [],
+    qualificationSystem
   }
 }
 
@@ -1261,925 +1263,772 @@ export async function generateNextTournamentRound(pin: string) {
         standings.set(match.away_user_id, awayStanding)
       })
 
-      // Get total participants
+      // Get total participants and qualification system
       const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
       const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
       const totalParticipants = users.length
+      const qualificationSystem = config.qualification_system || 'top3'
 
-      // Determine qualification logic based on participant count
+      // Determine qualification logic based on qualification system
       let qualifiedTeams: any[] = []
       let hasByeSystem = false
 
-      if (totalParticipants === 4) {
-        // 4 people: Top 1 from each group (2 teams) -> Skip QF, go to SF
-        const getTop1 = (standings: Map<string, any>) => {
+      if (qualificationSystem === 'top4') {
+        // Top 4 from each group (8 teams) -> Standard bracket QF -> SF -> F
+        const getTop4 = (standings: Map<string, any>) => {
           return Array.from(standings.entries())
             .sort((a, b) => {
               if (b[1].points !== a[1].points) return b[1].points - a[1].points
               if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
               return b[1].goalsFor - a[1].goalsFor
             })
-            .slice(0, 1)
+            .slice(0, 4)
             .map(entry => entry[0])
         }
 
-        const groupATop1 = getTop1(groupAStandings)
-        const groupBTop1 = getTop1(groupBStandings)
+        const groupATop4 = getTop4(groupAStandings)
+        const groupBTop4 = getTop4(groupBStandings)
 
-        if (groupATop1.length < 1 || groupBTop1.length < 1) {
-          return { success: false, error: 'Need at least 1 team in each group' }
+        if (groupATop4.length < 4 || groupBTop4.length < 4) {
+          return { success: false, error: 'Need at least 4 teams in each group for Top 4 qualification' }
         }
 
-        const groupAUsers = groupATop1.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-        const groupBUsers = groupBTop1.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+        const groupAUsers = groupATop4.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+        const groupBUsers = groupBTop4.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
 
-        qualifiedTeams = [groupAUsers[0], groupBUsers[0]]
+        // Order: Group A 1st, Group B 1st, Group A 2nd, Group B 2nd, Group A 3rd, Group B 3rd, Group A 4th, Group B 4th
+        qualifiedTeams = [
+          groupAUsers[0],
+          groupBUsers[0],
+          groupAUsers[1],
+          groupBUsers[1],
+          groupAUsers[2],
+          groupBUsers[2],
+          groupAUsers[3],
+          groupBUsers[3]
+        ]
         hasByeSystem = false
-
-        // Generate semi finals directly (skip QF)
-        const homeAway = config?.home_away || false
-        const semiFinals = []
-
-        if (homeAway) {
-          semiFinals.push({
-            home_user_id: qualifiedTeams[0].id,
-            away_user_id: qualifiedTeams[1].id,
-            home_team_name: qualifiedTeams[0].team_name,
-            away_team_name: qualifiedTeams[1].team_name,
-            home_team_logo: qualifiedTeams[0].team_logo || '',
-            away_team_logo: qualifiedTeams[1].team_logo || '',
-            home_team_short_name: qualifiedTeams[0].team_short_name || '',
-            away_team_short_name: qualifiedTeams[1].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'semi_final'
-          })
-          semiFinals.push({
-            home_user_id: qualifiedTeams[1].id,
-            away_user_id: qualifiedTeams[0].id,
-            home_team_name: qualifiedTeams[1].team_name,
-            away_team_name: qualifiedTeams[0].team_name,
-            home_team_logo: qualifiedTeams[1].team_logo || '',
-            away_team_logo: qualifiedTeams[0].team_logo || '',
-            home_team_short_name: qualifiedTeams[1].team_short_name || '',
-            away_team_short_name: qualifiedTeams[0].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'semi_final'
-          })
-        } else {
-          semiFinals.push({
-            home_user_id: qualifiedTeams[0].id,
-            away_user_id: qualifiedTeams[1].id,
-            home_team_name: qualifiedTeams[0].team_name,
-            away_team_name: qualifiedTeams[1].team_name,
-            home_team_logo: qualifiedTeams[0].team_logo || '',
-            away_team_logo: qualifiedTeams[1].team_logo || '',
-            home_team_short_name: qualifiedTeams[0].team_short_name || '',
-            away_team_short_name: qualifiedTeams[1].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'semi_final'
-          })
+      } else {
+        // Top 3 from each group (6 teams) -> Bye system
+        const getTop3 = (standings: Map<string, any>) => {
+          return Array.from(standings.entries())
+            .sort((a, b) => {
+              if (b[1].points !== a[1].points) return b[1].points - a[1].points
+              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
+              return b[1].goalsFor - a[1].goalsFor
+            })
+            .slice(0, 3)
+            .map(entry => entry[0])
         }
 
-        for (const match of semiFinals) {
+        const groupATop3 = getTop3(groupAStandings)
+        const groupBTop3 = getTop3(groupBStandings)
+
+        if (groupATop3.length < 3 || groupBTop3.length < 3) {
+          return { success: false, error: 'Need at least 3 teams in each group for Top 3 qualification' }
+        }
+
+        const groupAUsers = groupATop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+        const groupBUsers = groupBTop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
+
+        // Order: Group A 1st, Group B 1st, Group A 2nd, Group B 2nd, Group A 3rd, Group B 3rd
+        qualifiedTeams = [
+          groupAUsers[0], // Group A 1st - Bye to Semifinal
+          groupBUsers[0], // Group B 1st - Bye to Semifinal
+          groupAUsers[1], // Group A 2nd
+          groupBUsers[1], // Group B 2nd
+          groupAUsers[2], // Group A 3rd
+          groupBUsers[2]  // Group B 3rd
+        ]
+        hasByeSystem = true
+      }
+
+        // Generate knockout matches based on qualification system
+        const homeAway = config?.home_away || false
+        const knockoutMatches: any[] = []
+
+        if (hasByeSystem) {
+          // Generate quarter finals (only for teams 2-5)
+          const quarterFinals = []
+
+          if (homeAway) {
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[2].id,
+              away_user_id: qualifiedTeams[3].id,
+              home_team_name: qualifiedTeams[2].team_name,
+              away_team_name: qualifiedTeams[3].team_name,
+              home_team_logo: qualifiedTeams[2].team_logo || '',
+              away_team_logo: qualifiedTeams[3].team_logo || '',
+              home_team_short_name: qualifiedTeams[2].team_short_name || '',
+              away_team_short_name: qualifiedTeams[3].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[3].id,
+              away_user_id: qualifiedTeams[2].id,
+              home_team_name: qualifiedTeams[3].team_name,
+              away_team_name: qualifiedTeams[2].team_name,
+              home_team_logo: qualifiedTeams[3].team_logo || '',
+              away_team_logo: qualifiedTeams[2].team_logo || '',
+              home_team_short_name: qualifiedTeams[3].team_short_name || '',
+              away_team_short_name: qualifiedTeams[2].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[4].id,
+              away_user_id: qualifiedTeams[5].id,
+              home_team_name: qualifiedTeams[4].team_name,
+              away_team_name: qualifiedTeams[5].team_name,
+              home_team_logo: qualifiedTeams[4].team_logo || '',
+              away_team_logo: qualifiedTeams[5].team_logo || '',
+              home_team_short_name: qualifiedTeams[4].team_short_name || '',
+              away_team_short_name: qualifiedTeams[5].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[5].id,
+              away_user_id: qualifiedTeams[4].id,
+              home_team_name: qualifiedTeams[5].team_name,
+              away_team_name: qualifiedTeams[4].team_name,
+              home_team_logo: qualifiedTeams[5].team_logo || '',
+              away_team_logo: qualifiedTeams[4].team_logo || '',
+              home_team_short_name: qualifiedTeams[5].team_short_name || '',
+              away_team_short_name: qualifiedTeams[4].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+          } else {
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[2].id,
+              away_user_id: qualifiedTeams[3].id,
+              home_team_name: qualifiedTeams[2].team_name,
+              away_team_name: qualifiedTeams[3].team_name,
+              home_team_logo: qualifiedTeams[2].team_logo || '',
+              away_team_logo: qualifiedTeams[3].team_logo || '',
+              home_team_short_name: qualifiedTeams[2].team_short_name || '',
+              away_team_short_name: qualifiedTeams[3].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[4].id,
+              away_user_id: qualifiedTeams[5].id,
+              home_team_name: qualifiedTeams[4].team_name,
+              away_team_name: qualifiedTeams[5].team_name,
+              home_team_logo: qualifiedTeams[4].team_logo || '',
+              away_team_logo: qualifiedTeams[5].team_logo || '',
+              home_team_short_name: qualifiedTeams[4].team_short_name || '',
+              away_team_short_name: qualifiedTeams[5].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+          }
+
+          knockoutMatches.push(...quarterFinals)
+        } else {
+          // Generate quarter finals (all 8 teams)
+          const quarterFinals = []
+
+          if (homeAway) {
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[0].id,
+              away_user_id: qualifiedTeams[1].id,
+              home_team_name: qualifiedTeams[0].team_name,
+              away_team_name: qualifiedTeams[1].team_name,
+              home_team_logo: qualifiedTeams[0].team_logo || '',
+              away_team_logo: qualifiedTeams[1].team_logo || '',
+              home_team_short_name: qualifiedTeams[0].team_short_name || '',
+              away_team_short_name: qualifiedTeams[1].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[1].id,
+              away_user_id: qualifiedTeams[0].id,
+              home_team_name: qualifiedTeams[1].team_name,
+              away_team_name: qualifiedTeams[0].team_name,
+              home_team_logo: qualifiedTeams[1].team_logo || '',
+              away_team_logo: qualifiedTeams[0].team_logo || '',
+              home_team_short_name: qualifiedTeams[1].team_short_name || '',
+              away_team_short_name: qualifiedTeams[0].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[2].id,
+              away_user_id: qualifiedTeams[3].id,
+              home_team_name: qualifiedTeams[2].team_name,
+              away_team_name: qualifiedTeams[3].team_name,
+              home_team_logo: qualifiedTeams[2].team_logo || '',
+              away_team_logo: qualifiedTeams[3].team_logo || '',
+              home_team_short_name: qualifiedTeams[2].team_short_name || '',
+              away_team_short_name: qualifiedTeams[3].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[3].id,
+              away_user_id: qualifiedTeams[2].id,
+              home_team_name: qualifiedTeams[3].team_name,
+              away_team_name: qualifiedTeams[2].team_name,
+              home_team_logo: qualifiedTeams[3].team_logo || '',
+              away_team_logo: qualifiedTeams[2].team_logo || '',
+              home_team_short_name: qualifiedTeams[3].team_short_name || '',
+              away_team_short_name: qualifiedTeams[2].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[4].id,
+              away_user_id: qualifiedTeams[5].id,
+              home_team_name: qualifiedTeams[4].team_name,
+              away_team_name: qualifiedTeams[5].team_name,
+              home_team_logo: qualifiedTeams[4].team_logo || '',
+              away_team_logo: qualifiedTeams[5].team_logo || '',
+              home_team_short_name: qualifiedTeams[4].team_short_name || '',
+              away_team_short_name: qualifiedTeams[5].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[5].id,
+              away_user_id: qualifiedTeams[4].id,
+              home_team_name: qualifiedTeams[5].team_name,
+              away_team_name: qualifiedTeams[4].team_name,
+              home_team_logo: qualifiedTeams[5].team_logo || '',
+              away_team_logo: qualifiedTeams[4].team_logo || '',
+              home_team_short_name: qualifiedTeams[5].team_short_name || '',
+              away_team_short_name: qualifiedTeams[4].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[6].id,
+              away_user_id: qualifiedTeams[7].id,
+              home_team_name: qualifiedTeams[6].team_name,
+              away_team_name: qualifiedTeams[7].team_name,
+              home_team_logo: qualifiedTeams[6].team_logo || '',
+              away_team_logo: qualifiedTeams[7].team_logo || '',
+              home_team_short_name: qualifiedTeams[6].team_short_name || '',
+              away_team_short_name: qualifiedTeams[7].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[7].id,
+              away_user_id: qualifiedTeams[6].id,
+              home_team_name: qualifiedTeams[7].team_name,
+              away_team_name: qualifiedTeams[6].team_name,
+              home_team_logo: qualifiedTeams[7].team_logo || '',
+              away_team_logo: qualifiedTeams[6].team_logo || '',
+              home_team_short_name: qualifiedTeams[7].team_short_name || '',
+              away_team_short_name: qualifiedTeams[6].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+          } else {
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[0].id,
+              away_user_id: qualifiedTeams[1].id,
+              home_team_name: qualifiedTeams[0].team_name,
+              away_team_name: qualifiedTeams[1].team_name,
+              home_team_logo: qualifiedTeams[0].team_logo || '',
+              away_team_logo: qualifiedTeams[1].team_logo || '',
+              home_team_short_name: qualifiedTeams[0].team_short_name || '',
+              away_team_short_name: qualifiedTeams[1].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[2].id,
+              away_user_id: qualifiedTeams[3].id,
+              home_team_name: qualifiedTeams[2].team_name,
+              away_team_name: qualifiedTeams[3].team_name,
+              home_team_logo: qualifiedTeams[2].team_logo || '',
+              away_team_logo: qualifiedTeams[3].team_logo || '',
+              home_team_short_name: qualifiedTeams[2].team_short_name || '',
+              away_team_short_name: qualifiedTeams[3].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[4].id,
+              away_user_id: qualifiedTeams[5].id,
+              home_team_name: qualifiedTeams[4].team_name,
+              away_team_name: qualifiedTeams[5].team_name,
+              home_team_logo: qualifiedTeams[4].team_logo || '',
+              away_team_logo: qualifiedTeams[5].team_logo || '',
+              home_team_short_name: qualifiedTeams[4].team_short_name || '',
+              away_team_short_name: qualifiedTeams[5].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+            quarterFinals.push({
+              home_user_id: qualifiedTeams[6].id,
+              away_user_id: qualifiedTeams[7].id,
+              home_team_name: qualifiedTeams[6].team_name,
+              away_team_name: qualifiedTeams[7].team_name,
+              home_team_logo: qualifiedTeams[6].team_logo || '',
+              away_team_logo: qualifiedTeams[7].team_logo || '',
+              home_team_short_name: qualifiedTeams[6].team_short_name || '',
+              away_team_short_name: qualifiedTeams[7].team_short_name || '',
+              status: 'scheduled',
+              round: 2,
+              phase: 'tournament',
+              tournament_round: 'quarter_final'
+            })
+          }
+
+          knockoutMatches.push(...quarterFinals)
+        }
+
+        // Insert knockout matches
+        for (const match of knockoutMatches) {
           await addDoc(collection(getDBInstance(), 'matches'), {
             ...match,
             updated_at: serverTimestamp()
           })
         }
 
+        // Update league config status
+        const configRef = doc(getDBInstance(), 'league_config', 'config')
+        await setDoc(configRef, {
+          status: 'tournament_ongoing',
+          updated_at: serverTimestamp()
+        }, { merge: true })
+
         return { success: true }
-      } else if (totalParticipants === 6) {
-        // 6 people: Top 1 from each group (bye to SF), Top 2-3 to QF
-        const getTop3 = (standings: Map<string, any>) => {
-          return Array.from(standings.entries())
-            .sort((a, b) => {
-              if (b[1].points !== a[1].points) return b[1].points - a[1].points
-              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
-              return b[1].goalsFor - a[1].goalsFor
+      } else if (config.tournament_mode === 'knockout' && config.status === 'tournament_ongoing') {
+        // Handle knockout tournament rounds
+        const matchesQuery = query(collection(getDBInstance(), 'matches'))
+        const matchesSnapshot = await getDocs(matchesQuery)
+        const matches = matchesSnapshot.docs.map(doc => doc.data())
+        const currentRoundMatches = matches.filter(m => m.phase === 'tournament' && m.status === 'played')
+        const upcomingMatches = matches.filter(m => m.phase === 'tournament' && m.status === 'scheduled')
+
+        if (upcomingMatches.length === 0 && currentRoundMatches.length > 0) {
+          // Current round complete, generate next round
+          const lastPlayedRound = Math.max(...currentRoundMatches.map(m => m.round || 0))
+          const lastRoundType = currentRoundMatches.find(m => m.round === lastPlayedRound)?.tournament_round
+
+          if (lastRoundType === 'quarter_final') {
+            // Generate semi finals
+            const winners = currentRoundMatches.map(m => {
+              const homeScore = m.home_score || 0
+              const awayScore = m.away_score || 0
+              return homeScore > awayScore ? m.home_user_id : m.away_user_id
             })
-            .slice(0, 3)
-            .map(entry => entry[0])
-        }
 
-        const groupATop3 = getTop3(groupAStandings)
-        const groupBTop3 = getTop3(groupBStandings)
+            const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+            const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
 
-        if (groupATop3.length < 3 || groupBTop3.length < 3) {
-          return { success: false, error: 'Need at least 3 teams in each group for World Cup Extended' }
-        }
+            const semiFinals = []
+            const homeAway = config?.home_away || false
 
-        const groupAUsers = groupATop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-        const groupBUsers = groupBTop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-
-        // Order: Group A 1st, Group B 1st, Group A 2nd, Group B 2nd, Group A 3rd, Group B 3rd
-        qualifiedTeams = [
-          groupAUsers[0], // Group A 1st - Bye to Semifinal
-          groupBUsers[0], // Group B 1st - Bye to Semifinal
-          groupAUsers[1], // Group A 2nd
-          groupBUsers[1], // Group B 2nd
-          groupAUsers[2], // Group A 3rd
-          groupBUsers[2]  // Group B 3rd
-        ]
-        hasByeSystem = true
-      } else if (totalParticipants >= 6) {
-        // 6-9 people: Top 1 from each group (bye to SF), Top 2-3 to QF
-        const getTop3 = (standings: Map<string, any>) => {
-          return Array.from(standings.entries())
-            .sort((a, b) => {
-              if (b[1].points !== a[1].points) return b[1].points - a[1].points
-              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
-              return b[1].goalsFor - a[1].goalsFor
-            })
-            .slice(0, 3)
-            .map(entry => entry[0])
-        }
-
-        const groupATop3 = getTop3(groupAStandings)
-        const groupBTop3 = getTop3(groupBStandings)
-
-        if (groupATop3.length < 3 || groupBTop3.length < 3) {
-          return { success: false, error: 'Need at least 3 teams in each group for World Cup Extended' }
-        }
-
-        const groupAUsers = groupATop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-        const groupBUsers = groupBTop3.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-
-        // Order: Group A 1st, Group B 1st, Group A 2nd, Group B 2nd, Group A 3rd, Group B 3rd
-        qualifiedTeams = [
-          groupAUsers[0], // Group A 1st - Bye to Semifinal
-          groupBUsers[0], // Group B 1st - Bye to Semifinal
-          groupAUsers[1], // Group A 2nd
-          groupBUsers[1], // Group B 2nd
-          groupAUsers[2], // Group A 3rd
-          groupBUsers[2]  // Group B 3rd
-        ]
-        hasByeSystem = true
-      } else {
-        // 5 people: Top 2 from each group (4 teams) -> QF -> SF -> F
-        const getTop2 = (standings: Map<string, any>) => {
-          return Array.from(standings.entries())
-            .sort((a, b) => {
-              if (b[1].points !== a[1].points) return b[1].points - a[1].points
-              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
-              return b[1].goalsFor - a[1].goalsFor
-            })
-            .slice(0, 2)
-            .map(entry => entry[0])
-        }
-
-        const groupATop2 = getTop2(groupAStandings)
-        const groupBTop2 = getTop2(groupBStandings)
-
-        if (groupATop2.length < 2 || groupBTop2.length < 2) {
-          return { success: false, error: 'Need at least 2 teams in each group' }
-        }
-
-        const groupAUsers = groupATop2.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-        const groupBUsers = groupBTop2.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-
-        // Order: Group A 1st, Group B 2nd, Group B 1st, Group A 2nd (cross bracket)
-        qualifiedTeams = [
-          groupAUsers[0], // Group A 1st
-          groupBUsers[1], // Group B 2nd
-          groupBUsers[0], // Group B 1st
-          groupAUsers[1]  // Group A 2nd
-        ]
-        hasByeSystem = false
-      }
-
-      const homeAway = config?.home_away || false
-
-      // Generate quarter finals (only for 5, 7, 8 people cases)
-      const quarterFinalMatches = []
-      if (!hasByeSystem) {
-        // Standard QF: 4 teams, 2 matches
-        if (homeAway) {
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[0].id,
-            away_user_id: qualifiedTeams[1].id,
-            home_team_name: qualifiedTeams[0].team_name,
-            away_team_name: qualifiedTeams[1].team_name,
-            home_team_logo: qualifiedTeams[0].team_logo || '',
-            away_team_logo: qualifiedTeams[1].team_logo || '',
-            home_team_short_name: qualifiedTeams[0].team_short_name || '',
-            away_team_short_name: qualifiedTeams[1].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[1].id,
-            away_user_id: qualifiedTeams[0].id,
-            home_team_name: qualifiedTeams[1].team_name,
-            away_team_name: qualifiedTeams[0].team_name,
-            home_team_logo: qualifiedTeams[1].team_logo || '',
-            away_team_logo: qualifiedTeams[0].team_logo || '',
-            home_team_short_name: qualifiedTeams[1].team_short_name || '',
-            away_team_short_name: qualifiedTeams[0].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[2].id,
-            away_user_id: qualifiedTeams[3].id,
-            home_team_name: qualifiedTeams[2].team_name,
-            away_team_name: qualifiedTeams[3].team_name,
-            home_team_logo: qualifiedTeams[2].team_logo || '',
-            away_team_logo: qualifiedTeams[3].team_logo || '',
-            home_team_short_name: qualifiedTeams[2].team_short_name || '',
-            away_team_short_name: qualifiedTeams[3].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[3].id,
-            away_user_id: qualifiedTeams[2].id,
-            home_team_name: qualifiedTeams[3].team_name,
-            away_team_name: qualifiedTeams[2].team_name,
-            home_team_logo: qualifiedTeams[3].team_logo || '',
-            away_team_logo: qualifiedTeams[2].team_logo || '',
-            home_team_short_name: qualifiedTeams[3].team_short_name || '',
-            away_team_short_name: qualifiedTeams[2].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-        } else {
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[0].id,
-            away_user_id: qualifiedTeams[1].id,
-            home_team_name: qualifiedTeams[0].team_name,
-            away_team_name: qualifiedTeams[1].team_name,
-            home_team_logo: qualifiedTeams[0].team_logo || '',
-            away_team_logo: qualifiedTeams[1].team_logo || '',
-            home_team_short_name: qualifiedTeams[0].team_short_name || '',
-            away_team_short_name: qualifiedTeams[1].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[2].id,
-            away_user_id: qualifiedTeams[3].id,
-            home_team_name: qualifiedTeams[2].team_name,
-            away_team_name: qualifiedTeams[3].team_name,
-            home_team_logo: qualifiedTeams[2].team_logo || '',
-            away_team_logo: qualifiedTeams[3].team_logo || '',
-            home_team_short_name: qualifiedTeams[2].team_short_name || '',
-            away_team_short_name: qualifiedTeams[3].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-        }
-      } else {
-        // Bye system (6 people): 2 QF matches
-        if (homeAway) {
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[2].id,
-            away_user_id: qualifiedTeams[5].id,
-            home_team_name: qualifiedTeams[2].team_name,
-            away_team_name: qualifiedTeams[5].team_name,
-            home_team_logo: qualifiedTeams[2].team_logo || '',
-            away_team_logo: qualifiedTeams[5].team_logo || '',
-            home_team_short_name: qualifiedTeams[2].team_short_name || '',
-            away_team_short_name: qualifiedTeams[5].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[5].id,
-            away_user_id: qualifiedTeams[2].id,
-            home_team_name: qualifiedTeams[5].team_name,
-            away_team_name: qualifiedTeams[2].team_name,
-            home_team_logo: qualifiedTeams[5].team_logo || '',
-            away_team_logo: qualifiedTeams[2].team_logo || '',
-            home_team_short_name: qualifiedTeams[5].team_short_name || '',
-            away_team_short_name: qualifiedTeams[2].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[3].id,
-            away_user_id: qualifiedTeams[4].id,
-            home_team_name: qualifiedTeams[3].team_name,
-            away_team_name: qualifiedTeams[4].team_name,
-            home_team_logo: qualifiedTeams[3].team_logo || '',
-            away_team_logo: qualifiedTeams[4].team_logo || '',
-            home_team_short_name: qualifiedTeams[3].team_short_name || '',
-            away_team_short_name: qualifiedTeams[4].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[4].id,
-            away_user_id: qualifiedTeams[3].id,
-            home_team_name: qualifiedTeams[4].team_name,
-            away_team_name: qualifiedTeams[3].team_name,
-            home_team_logo: qualifiedTeams[4].team_logo || '',
-            away_team_logo: qualifiedTeams[3].team_logo || '',
-            home_team_short_name: qualifiedTeams[4].team_short_name || '',
-            away_team_short_name: qualifiedTeams[3].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-        } else {
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[2].id,
-            away_user_id: qualifiedTeams[5].id,
-            home_team_name: qualifiedTeams[2].team_name,
-            away_team_name: qualifiedTeams[5].team_name,
-            home_team_logo: qualifiedTeams[2].team_logo || '',
-            away_team_logo: qualifiedTeams[5].team_logo || '',
-            home_team_short_name: qualifiedTeams[2].team_short_name || '',
-            away_team_short_name: qualifiedTeams[5].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-          quarterFinalMatches.push({
-            home_user_id: qualifiedTeams[3].id,
-            away_user_id: qualifiedTeams[4].id,
-            home_team_name: qualifiedTeams[3].team_name,
-            away_team_name: qualifiedTeams[4].team_name,
-            home_team_logo: qualifiedTeams[3].team_logo || '',
-            away_team_logo: qualifiedTeams[4].team_logo || '',
-            home_team_short_name: qualifiedTeams[3].team_short_name || '',
-            away_team_short_name: qualifiedTeams[4].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-        }
-      }
-
-      for (const match of quarterFinalMatches) {
-        await addDoc(collection(getDBInstance(), 'matches'), {
-          ...match,
-          updated_at: serverTimestamp()
-        })
-      }
-
-      // Update league config
-      const configRef = doc(getDBInstance(), 'league_config', 'config')
-      await setDoc(configRef, {
-        id: 'config',
-        status: 'tournament_ongoing',
-        updated_at: serverTimestamp()
-      }, { merge: true })
-
-      return { success: true }
-    }
-
-    // Handle Knockout and Liga tournament progression
-    const allMatchesQuery = query(
-      collection(getDBInstance(), 'matches'),
-      where('phase', '==', 'tournament')
-    )
-    const allSnapshot = await getDocs(allMatchesQuery)
-    const allMatches = allSnapshot.docs.map(doc => doc.data())
-
-    // Get completed tournament matches
-    const completedMatches = allMatches.filter(m => m.status === 'played')
-
-    // Determine current tournament stage
-    const playInMatches = allMatches.filter(m => m.tournament_round === 'play_in')
-    const quarterFinals = allMatches.filter(m => m.tournament_round === 'quarter_final')
-    const semiFinals = allMatches.filter(m => m.tournament_round === 'semi_final')
-    const finals = allMatches.filter(m => m.tournament_round === 'final')
-
-    const playInCompleted = completedMatches.filter(m => m.tournament_round === 'play_in').length
-    const quarterFinalsCompleted = completedMatches.filter(m => m.tournament_round === 'quarter_final').length
-    const semiFinalsCompleted = completedMatches.filter(m => m.tournament_round === 'semi_final').length
-    const finalsCompleted = completedMatches.filter(m => m.tournament_round === 'final').length
-
-    // Handle play-in completion (Knockout mode with odd teams)
-    if (playInMatches.length > 0 && playInCompleted < playInMatches.length) {
-      return { success: false, error: 'Complete play-in matches first' }
-    }
-
-    // Generate quarter finals after play-in
-    if (playInCompleted >= 2 && quarterFinals.length === 0) {
-      // Calculate play-in winner (aggregate score)
-      const playInWinner = playInMatches[0].home_score + playInMatches[1].away_score > 
-                          playInMatches[0].away_score + playInMatches[1].home_score
-        ? playInMatches[0].home_user_id
-        : playInMatches[0].away_user_id
-
-      const config = await getLeagueConfig()
-      const qualifiedTeamIds = config?.qualified_teams || []
-      const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
-      const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-
-      const qualifiedUsers = qualifiedTeamIds.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-      const playInUser = users.find((u: any) => u.id === playInWinner)
-
-      if (!playInUser) {
-        return { success: false, error: 'Play-in winner not found' }
-      }
-
-      const allTournamentTeams = [...qualifiedUsers, playInUser]
-      const homeAway = config?.home_away || false
-
-      // Generate quarter finals
-      const quarterFinalMatches = []
-      for (let i = 0; i < allTournamentTeams.length; i += 2) {
-        if (homeAway) {
-          quarterFinalMatches.push({
-            home_user_id: allTournamentTeams[i].id,
-            away_user_id: allTournamentTeams[i + 1].id,
-            home_team_name: allTournamentTeams[i].team_name,
-            away_team_name: allTournamentTeams[i + 1].team_name,
-            home_team_logo: allTournamentTeams[i].team_logo || '',
-            away_team_logo: allTournamentTeams[i + 1].team_logo || '',
-            home_team_short_name: allTournamentTeams[i].team_short_name || '',
-            away_team_short_name: allTournamentTeams[i + 1].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-          quarterFinalMatches.push({
-            home_user_id: allTournamentTeams[i + 1].id,
-            away_user_id: allTournamentTeams[i].id,
-            home_team_name: allTournamentTeams[i + 1].team_name,
-            away_team_name: allTournamentTeams[i].team_name,
-            home_team_logo: allTournamentTeams[i + 1].team_logo || '',
-            away_team_logo: allTournamentTeams[i].team_logo || '',
-            home_team_short_name: allTournamentTeams[i + 1].team_short_name || '',
-            away_team_short_name: allTournamentTeams[i].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-        } else {
-          quarterFinalMatches.push({
-            home_user_id: allTournamentTeams[i].id,
-            away_user_id: allTournamentTeams[i + 1].id,
-            home_team_name: allTournamentTeams[i].team_name,
-            away_team_name: allTournamentTeams[i + 1].team_name,
-            home_team_logo: allTournamentTeams[i].team_logo || '',
-            away_team_logo: allTournamentTeams[i + 1].team_logo || '',
-            home_team_short_name: allTournamentTeams[i].team_short_name || '',
-            away_team_short_name: allTournamentTeams[i + 1].team_short_name || '',
-            status: 'scheduled',
-            round: 2,
-            phase: 'tournament',
-            tournament_round: 'quarter_final'
-          })
-        }
-      }
-
-      for (const match of quarterFinalMatches) {
-        await addDoc(collection(getDBInstance(), 'matches'), {
-          ...match,
-          updated_at: serverTimestamp()
-        })
-      }
-
-      return { success: true }
-    }
-
-    // Handle quarter finals completion
-    const isWorldCupExtended = config?.tournament_mode === 'worldcup'
-    const isKnockout = config?.tournament_mode === 'knockout'
-    const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
-    const totalParticipants = usersSnapshot.docs.length
-
-    // For 4 people in World Cup mode, skip QF check (no QF matches)
-    // For 2 people in knockout mode, skip QF (direct final)
-    // For 4 people in knockout mode, skip QF (direct SF)
-    let requiredQuarterFinals = isWorldCupExtended ? 2 : 4
-    if (isWorldCupExtended && totalParticipants === 4) {
-      requiredQuarterFinals = 0 // No QF for 4 people in World Cup
-    } else if (isWorldCupExtended && totalParticipants >= 6) {
-      requiredQuarterFinals = 2 // 2 QF matches for 6+ people (bye system)
-    } else if (isKnockout && totalParticipants <= 4) {
-      requiredQuarterFinals = 0 // No QF for 2-4 people in knockout
-    }
-
-    if (quarterFinals.length > 0 && quarterFinalsCompleted < quarterFinals.length) {
-      return { success: false, error: 'Complete all quarter finals first' }
-    }
-
-    // Generate semi finals after quarter finals (or directly after group stage/play-in for small participant counts)
-    const shouldGenerateSemiFinals = (
-      (totalParticipants === 4 && quarterFinals.length === 0 && semiFinals.length === 0) ||
-      (isKnockout && totalParticipants === 4 && quarterFinals.length === 0 && semiFinals.length === 0) ||
-      (quarterFinalsCompleted >= requiredQuarterFinals && semiFinals.length === 0)
-    )
-
-    if (shouldGenerateSemiFinals) {
-
-      // For 4 people case: get top 1 from each group directly (no QF)
-      // For knockout 4 people: get QF winners or direct SF
-      let semiFinalists: any[] = []
-      if (totalParticipants === 4 && isWorldCupExtended) {
-        const groupMatchesQuery = query(
-          collection(getDBInstance(), 'matches'),
-          where('phase', '==', 'group')
-        )
-        const groupSnapshot = await getDocs(groupMatchesQuery)
-        const groupMatches = groupSnapshot.docs.map(doc => doc.data())
-
-        const groupAStandings = new Map<string, { points: number, goalDiff: number, goalsFor: number }>()
-        const groupBStandings = new Map<string, { points: number, goalDiff: number, goalsFor: number }>()
-
-        groupMatches.forEach(match => {
-          const standings = match.group === 'A' ? groupAStandings : groupBStandings
-          const homeStanding = standings.get(match.home_user_id) || { points: 0, goalDiff: 0, goalsFor: 0 }
-          const awayStanding = standings.get(match.away_user_id) || { points: 0, goalDiff: 0, goalsFor: 0 }
-
-          const homeScore = match.home_score || 0
-          const awayScore = match.away_score || 0
-
-          homeStanding.goalsFor += homeScore
-          awayStanding.goalsFor += awayScore
-          homeStanding.goalDiff += homeScore - awayScore
-          awayStanding.goalDiff += awayScore - homeScore
-
-          if (homeScore > awayScore) {
-            homeStanding.points += 3
-          } else if (homeScore < awayScore) {
-            awayStanding.points += 3
-          } else {
-            homeStanding.points += 1
-            awayStanding.points += 1
-          }
-
-          standings.set(match.home_user_id, homeStanding)
-          standings.set(match.away_user_id, awayStanding)
-        })
-
-        const getTop1 = (standings: Map<string, any>) => {
-          return Array.from(standings.entries())
-            .sort((a, b) => {
-              if (b[1].points !== a[1].points) return b[1].points - a[1].points
-              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
-              return b[1].goalsFor - a[1].goalsFor
-            })
-            .slice(0, 1)
-            .map(entry => entry[0])
-        }
-
-        const groupATop1 = getTop1(groupAStandings)[0]
-        const groupBTop1 = getTop1(groupBStandings)[0]
-
-        const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
-        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-
-        const groupAUser = users.find((u: any) => u.id === groupATop1) as any
-        const groupBUser = users.find((u: any) => u.id === groupBTop1) as any
-
-        if (!groupAUser || !groupBUser) {
-          return { success: false, error: 'Group winners not found' }
-        }
-
-        semiFinalists = [groupAUser, groupBUser]
-      } else if (isKnockout && totalParticipants === 4) {
-        // Knockout 4 people: SF matches are already generated in schedule
-        // Just get the winners
-        const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
-        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-        semiFinalists = quarterFinals.length > 0 ? quarterFinals
-          .filter(m => m.status === 'played')
-          .map(m => m.home_score > m.away_score ? m.home_user_id : m.away_user_id)
-          .map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[] : []
-      } else if (isKnockout && totalParticipants === 3) {
-        // Knockout 3 people: Get play-in winner + bye team
-        const playInWinners = playInMatches
-          .filter(m => m.status === 'played')
-          .map(m => m.home_score > m.away_score ? m.home_user_id : m.away_user_id)
-
-        if (playInWinners.length < 1) {
-          return { success: false, error: 'Complete play-in match first' }
-        }
-
-        const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
-        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-
-        const qualifiedTeamIds = config?.qualified_teams || []
-        const byeTeam = users.find((u: any) => u.id === qualifiedTeamIds[0])
-        const playInWinner = users.find((u: any) => u.id === playInWinners[0])
-
-        if (!byeTeam || !playInWinner) {
-          return { success: false, error: 'Teams not found' }
-        }
-
-        semiFinalists = [byeTeam, playInWinner]
-      } else {
-        // Standard case: get QF winners
-        const quarterFinalWinners = quarterFinals
-          .filter(m => m.status === 'played')
-          .map(m => {
-            // For home-away, calculate aggregate
-            if (quarterFinals.length > quarterFinals.length / 2) {
-              const homeAwayPair = quarterFinals.filter(qf =>
-                (qf.home_user_id === m.home_user_id && qf.away_user_id === m.away_user_id) ||
-                (qf.home_user_id === m.away_user_id && qf.away_user_id === m.home_user_id)
-              )
-              const aggregateHome = homeAwayPair.reduce((sum, qf) => sum + (qf.home_score || 0), 0)
-              const aggregateAway = homeAwayPair.reduce((sum, qf) => sum + (qf.away_score || 0), 0)
-              return aggregateHome > aggregateAway ? m.home_user_id : m.away_user_id
+            if (homeAway) {
+              const user0 = users.find((u: any) => u.id === winners[0]) as any
+              const user1 = users.find((u: any) => u.id === winners[1]) as any
+              const user2 = users.find((u: any) => u.id === winners[2]) as any
+              const user3 = users.find((u: any) => u.id === winners[3]) as any
+              semiFinals.push({
+                home_user_id: user0?.id,
+                away_user_id: user1?.id,
+                home_team_name: user0?.team_name,
+                away_team_name: user1?.team_name,
+                home_team_logo: user0?.team_logo || '',
+                away_team_logo: user1?.team_logo || '',
+                home_team_short_name: user0?.team_short_name || '',
+                away_team_short_name: user1?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'semi_final'
+              })
+              semiFinals.push({
+                home_user_id: user1?.id,
+                away_user_id: user0?.id,
+                home_team_name: user1?.team_name,
+                away_team_name: user0?.team_name,
+                home_team_logo: user1?.team_logo || '',
+                away_team_logo: user0?.team_logo || '',
+                home_team_short_name: user1?.team_short_name || '',
+                away_team_short_name: user0?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'semi_final'
+              })
+              semiFinals.push({
+                home_user_id: user2?.id,
+                away_user_id: user3?.id,
+                home_team_name: user2?.team_name,
+                away_team_name: user3?.team_name,
+                home_team_logo: user2?.team_logo || '',
+                away_team_logo: user3?.team_logo || '',
+                home_team_short_name: user2?.team_short_name || '',
+                away_team_short_name: user3?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'semi_final'
+              })
+              semiFinals.push({
+                home_user_id: user3?.id,
+                away_user_id: user2?.id,
+                home_team_name: user3?.team_name,
+                away_team_name: user2?.team_name,
+                home_team_logo: user3?.team_logo || '',
+                away_team_logo: user2?.team_logo || '',
+                home_team_short_name: user3?.team_short_name || '',
+                away_team_short_name: user2?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'semi_final'
+              })
+            } else {
+              const user0 = users.find((u: any) => u.id === winners[0]) as any
+              const user1 = users.find((u: any) => u.id === winners[1]) as any
+              const user2 = users.find((u: any) => u.id === winners[2]) as any
+              const user3 = users.find((u: any) => u.id === winners[3]) as any
+              semiFinals.push({
+                home_user_id: user0?.id,
+                away_user_id: user1?.id,
+                home_team_name: user0?.team_name,
+                away_team_name: user1?.team_name,
+                home_team_logo: user0?.team_logo || '',
+                away_team_logo: user1?.team_logo || '',
+                home_team_short_name: user0?.team_short_name || '',
+                away_team_short_name: user1?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'semi_final'
+              })
+              semiFinals.push({
+                home_user_id: user2?.id,
+                away_user_id: user3?.id,
+                home_team_name: user2?.team_name,
+                away_team_name: user3?.team_name,
+                home_team_logo: user2?.team_logo || '',
+                away_team_logo: user3?.team_logo || '',
+                home_team_short_name: user2?.team_short_name || '',
+                away_team_short_name: user3?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'semi_final'
+              })
             }
-            return m.home_score > m.away_score ? m.home_user_id : m.away_user_id
-          })
-          .filter((value, index, self) => self.indexOf(value) === index)
 
-        if (quarterFinalWinners.length < 2) {
-          return { success: false, error: 'Need at least 2 quarter final winners' }
-        }
+            for (const match of semiFinals) {
+              await addDoc(collection(getDBInstance(), 'matches'), {
+                ...match,
+                updated_at: serverTimestamp()
+              })
+            }
 
-        const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
-        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-
-        semiFinalists = quarterFinalWinners.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-      }
-
-      let semiFinalMatches = []
-
-      // Generate semi final matches based on participant count
-      if (isWorldCupExtended && totalParticipants === 6) {
-        // 6-team tournament: Top 1 from each group got bye to semifinal
-        // Get group standings to find top 1 from each group
-        const groupMatchesQuery = query(
-          collection(getDBInstance(), 'matches'),
-          where('phase', '==', 'group')
-        )
-        const groupSnapshot = await getDocs(groupMatchesQuery)
-        const groupMatches = groupSnapshot.docs.map(doc => doc.data())
-
-        const groupAStandings = new Map<string, { points: number, goalDiff: number, goalsFor: number }>()
-        const groupBStandings = new Map<string, { points: number, goalDiff: number, goalsFor: number }>()
-
-        groupMatches.forEach(match => {
-          const standings = match.group === 'A' ? groupAStandings : groupBStandings
-          const homeStanding = standings.get(match.home_user_id) || { points: 0, goalDiff: 0, goalsFor: 0 }
-          const awayStanding = standings.get(match.away_user_id) || { points: 0, goalDiff: 0, goalsFor: 0 }
-
-          const homeScore = match.home_score || 0
-          const awayScore = match.away_score || 0
-
-          homeStanding.goalsFor += homeScore
-          awayStanding.goalsFor += awayScore
-          homeStanding.goalDiff += homeScore - awayScore
-          awayStanding.goalDiff += awayScore - homeScore
-
-          if (homeScore > awayScore) {
-            homeStanding.points += 3
-          } else if (homeScore < awayScore) {
-            awayStanding.points += 3
-          } else {
-            homeStanding.points += 1
-            awayStanding.points += 1
-          }
-
-          standings.set(match.home_user_id, homeStanding)
-          standings.set(match.away_user_id, awayStanding)
-        })
-
-        const getTop1 = (standings: Map<string, any>) => {
-          return Array.from(standings.entries())
-            .sort((a, b) => {
-              if (b[1].points !== a[1].points) return b[1].points - a[1].points
-              if (b[1].goalDiff !== a[1].goalDiff) return b[1].goalDiff - a[1].goalDiff
-              return b[1].goalsFor - a[1].goalsFor
+            return { success: true }
+          } else if (lastRoundType === 'semi_final') {
+            // Generate final
+            const winners = currentRoundMatches.map(m => {
+              const homeScore = m.home_score || 0
+              const awayScore = m.away_score || 0
+              return homeScore > awayScore ? m.home_user_id : m.away_user_id
             })
-            .slice(0, 1)
-            .map(entry => entry[0])
-        }
 
-        const groupATop1 = getTop1(groupAStandings)[0]
-        const groupBTop1 = getTop1(groupBStandings)[0]
+            const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+            const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
 
-        const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
-        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+            const final = []
+            const homeAway = config?.home_away || false
 
-        const groupAUser = users.find((u: any) => u.id === groupATop1) as any
-        const groupBUser = users.find((u: any) => u.id === groupBTop1) as any
+            if (homeAway) {
+              const user0 = users.find((u: any) => u.id === winners[0]) as any
+              const user1 = users.find((u: any) => u.id === winners[1]) as any
+              final.push({
+                home_user_id: user0?.id,
+                away_user_id: user1?.id,
+                home_team_name: user0?.team_name,
+                away_team_name: user1?.team_name,
+                home_team_logo: user0?.team_logo || '',
+                away_team_logo: user1?.team_logo || '',
+                home_team_short_name: user0?.team_short_name || '',
+                away_team_short_name: user1?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'final'
+              })
+              final.push({
+                home_user_id: user1?.id,
+                away_user_id: user0?.id,
+                home_team_name: user1?.team_name,
+                away_team_name: user0?.team_name,
+                home_team_logo: user1?.team_logo || '',
+                away_team_logo: user0?.team_logo || '',
+                home_team_short_name: user1?.team_short_name || '',
+                away_team_short_name: user0?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'final'
+              })
+            } else {
+              const user0 = users.find((u: any) => u.id === winners[0]) as any
+              const user1 = users.find((u: any) => u.id === winners[1]) as any
+              final.push({
+                home_user_id: user0?.id,
+                away_user_id: user1?.id,
+                home_team_name: user0?.team_name,
+                away_team_name: user1?.team_name,
+                home_team_logo: user0?.team_logo || '',
+                away_team_logo: user1?.team_logo || '',
+                home_team_short_name: user0?.team_short_name || '',
+                away_team_short_name: user1?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'final'
+              })
+            }
 
-        if (!groupAUser || !groupBUser) {
-          return { success: false, error: 'Group winners not found' }
-        }
+            for (const match of final) {
+              await addDoc(collection(getDBInstance(), 'matches'), {
+                ...match,
+                updated_at: serverTimestamp()
+              })
+            }
 
-        const quarterFinalistUsers = semiFinalists
+            return { success: true }
+          } else if (lastRoundType === 'final') {
+            // Tournament complete
+            const configRef = doc(getDBInstance(), 'league_config', 'config')
+            await setDoc(configRef, {
+              status: 'tournament_completed',
+              updated_at: serverTimestamp()
+            }, { merge: true })
 
-        // Semi 1: Winner of Quarter 1 vs Group A 1st (bye)
-        // Semi 2: Winner of Quarter 2 vs Group B 1st (bye)
-        semiFinalMatches = [
-          {
-            home_user_id: quarterFinalistUsers[0]?.id,
-            away_user_id: groupAUser.id,
-            home_team_name: quarterFinalistUsers[0]?.team_name || '',
-            away_team_name: groupAUser.team_name || '',
-            home_team_logo: quarterFinalistUsers[0]?.team_logo || '',
-            away_team_logo: groupAUser.team_logo || '',
-            home_team_short_name: quarterFinalistUsers[0]?.team_short_name || '',
-            away_team_short_name: groupAUser.team_short_name || '',
-            status: 'scheduled',
-            round: 100,
-            phase: 'tournament',
-            tournament_round: 'semi_final'
-          },
-          {
-            home_user_id: quarterFinalistUsers[1]?.id,
-            away_user_id: groupBUser.id,
-            home_team_name: quarterFinalistUsers[1]?.team_name || '',
-            away_team_name: groupBUser.team_name || '',
-            home_team_logo: quarterFinalistUsers[1]?.team_logo || '',
-            away_team_logo: groupBUser.team_logo || '',
-            home_team_short_name: quarterFinalistUsers[1]?.team_short_name || '',
-            away_team_short_name: groupBUser.team_short_name || '',
-            status: 'scheduled',
-            round: 100,
-            phase: 'tournament',
-            tournament_round: 'semi_final'
+            return { success: true }
           }
-        ]
+        }
+
+        return { success: false, error: 'Complete current round first' }
+      } else if (config.tournament_mode === 'worldcup' && config.status === 'tournament_ongoing') {
+        // Handle World Cup knockout rounds (same as knockout)
+        const matchesQuery = query(collection(getDBInstance(), 'matches'))
+        const matchesSnapshot = await getDocs(matchesQuery)
+        const matches = matchesSnapshot.docs.map(doc => doc.data())
+        const currentRoundMatches = matches.filter(m => m.phase === 'tournament' && m.status === 'played')
+        const upcomingMatches = matches.filter(m => m.phase === 'tournament' && m.status === 'scheduled')
+
+        if (upcomingMatches.length === 0 && currentRoundMatches.length > 0) {
+          // Current round complete, generate next round
+          const lastPlayedRound = Math.max(...currentRoundMatches.map(m => m.round || 0))
+          const lastRoundType = currentRoundMatches.find(m => m.round === lastPlayedRound)?.tournament_round
+
+          if (lastRoundType === 'quarter_final') {
+            // Generate semi finals
+            const winners = currentRoundMatches.map(m => {
+              const homeScore = m.home_score || 0
+              const awayScore = m.away_score || 0
+              return homeScore > awayScore ? m.home_user_id : m.away_user_id
+            })
+
+            const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+            const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+            const semiFinals = []
+            const homeAway = config?.home_away || false
+
+            if (homeAway) {
+              const user0 = users.find((u: any) => u.id === winners[0]) as any
+              const user1 = users.find((u: any) => u.id === winners[1]) as any
+              semiFinals.push({
+                home_user_id: user0?.id,
+                away_user_id: user1?.id,
+                home_team_name: user0?.team_name,
+                away_team_name: user1?.team_name,
+                home_team_logo: user0?.team_logo || '',
+                away_team_logo: user1?.team_logo || '',
+                home_team_short_name: user0?.team_short_name || '',
+                away_team_short_name: user1?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'semi_final'
+              })
+              semiFinals.push({
+                home_user_id: user1?.id,
+                away_user_id: user0?.id,
+                home_team_name: user1?.team_name,
+                away_team_name: user0?.team_name,
+                home_team_logo: user1?.team_logo || '',
+                away_team_logo: user0?.team_logo || '',
+                home_team_short_name: user1?.team_short_name || '',
+                away_team_short_name: user0?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'semi_final'
+              })
+            } else {
+              const user0 = users.find((u: any) => u.id === winners[0]) as any
+              const user1 = users.find((u: any) => u.id === winners[1]) as any
+              semiFinals.push({
+                home_user_id: user0?.id,
+                away_user_id: user1?.id,
+                home_team_name: user0?.team_name,
+                away_team_name: user1?.team_name,
+                home_team_logo: user0?.team_logo || '',
+                away_team_logo: user1?.team_logo || '',
+                home_team_short_name: user0?.team_short_name || '',
+                away_team_short_name: user1?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'semi_final'
+              })
+            }
+
+            for (const match of semiFinals) {
+              await addDoc(collection(getDBInstance(), 'matches'), {
+                ...match,
+                updated_at: serverTimestamp()
+              })
+            }
+
+            return { success: true }
+          } else if (lastRoundType === 'semi_final') {
+            // Generate final
+            const winners = currentRoundMatches.map(m => {
+              const homeScore = m.home_score || 0
+              const awayScore = m.away_score || 0
+              return homeScore > awayScore ? m.home_user_id : m.away_user_id
+            })
+
+            const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+            const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+            const final = []
+            const homeAway = config?.home_away || false
+
+            if (homeAway) {
+              const user0 = users.find((u: any) => u.id === winners[0]) as any
+              const user1 = users.find((u: any) => u.id === winners[1]) as any
+              final.push({
+                home_user_id: user0?.id,
+                away_user_id: user1?.id,
+                home_team_name: user0?.team_name,
+                away_team_name: user1?.team_name,
+                home_team_logo: user0?.team_logo || '',
+                away_team_logo: user1?.team_logo || '',
+                home_team_short_name: user0?.team_short_name || '',
+                away_team_short_name: user1?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'final'
+              })
+              final.push({
+                home_user_id: user1?.id,
+                away_user_id: user0?.id,
+                home_team_name: user1?.team_name,
+                away_team_name: user0?.team_name,
+                home_team_logo: user1?.team_logo || '',
+                away_team_logo: user0?.team_logo || '',
+                home_team_short_name: user1?.team_short_name || '',
+                away_team_short_name: user0?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'final'
+              })
+            } else {
+              const user0 = users.find((u: any) => u.id === winners[0]) as any
+              const user1 = users.find((u: any) => u.id === winners[1]) as any
+              final.push({
+                home_user_id: user0?.id,
+                away_user_id: user1?.id,
+                home_team_name: user0?.team_name,
+                away_team_name: user1?.team_name,
+                home_team_logo: user0?.team_logo || '',
+                away_team_logo: user1?.team_logo || '',
+                home_team_short_name: user0?.team_short_name || '',
+                away_team_short_name: user1?.team_short_name || '',
+                status: 'scheduled',
+                round: lastPlayedRound + 1,
+                phase: 'tournament',
+                tournament_round: 'final'
+              })
+            }
+
+            for (const match of final) {
+              await addDoc(collection(getDBInstance(), 'matches'), {
+                ...match,
+                updated_at: serverTimestamp()
+              })
+            }
+
+            return { success: true }
+          } else if (lastRoundType === 'final') {
+            // Tournament complete
+            const configRef = doc(getDBInstance(), 'league_config', 'config')
+            await setDoc(configRef, {
+              status: 'tournament_completed',
+              updated_at: serverTimestamp()
+            }, { merge: true })
+
+            return { success: true }
+          }
+        }
+
+        return { success: false, error: 'Complete current round first' }
       } else {
-        // Standard tournament (4, 5, 7, 8 people): semiFinalists already contains QF winners or group winners
-        if (semiFinalists.length < 2) {
-          return { success: false, error: 'Need at least 2 semi finalists' }
-        }
-
-        semiFinalMatches = [
-          {
-            home_user_id: semiFinalists[0]?.id,
-            away_user_id: semiFinalists[1]?.id,
-            home_team_name: semiFinalists[0]?.team_name || '',
-            away_team_name: semiFinalists[1]?.team_name || '',
-            home_team_logo: semiFinalists[0]?.team_logo || '',
-            away_team_logo: semiFinalists[1]?.team_logo || '',
-            home_team_short_name: semiFinalists[0]?.team_short_name || '',
-            away_team_short_name: semiFinalists[1]?.team_short_name || '',
-            status: 'scheduled',
-            round: 100,
-            phase: 'tournament',
-            tournament_round: 'semi_final'
-          }
-        ]
-
-        // For 4+ QF winners, add second semi final
-        if (semiFinalists.length >= 4) {
-          semiFinalMatches.push({
-            home_user_id: semiFinalists[2]?.id,
-            away_user_id: semiFinalists[3]?.id,
-            home_team_name: semiFinalists[2]?.team_name || '',
-            away_team_name: semiFinalists[3]?.team_name || '',
-            home_team_logo: semiFinalists[2]?.team_logo || '',
-            away_team_logo: semiFinalists[3]?.team_logo || '',
-            home_team_short_name: semiFinalists[2]?.team_short_name || '',
-            away_team_short_name: semiFinalists[3]?.team_short_name || '',
-            status: 'scheduled',
-            round: 100,
-            phase: 'tournament',
-            tournament_round: 'semi_final'
-          })
-        }
+        return { success: false, error: 'Invalid tournament state' }
       }
-
-      for (const match of semiFinalMatches) {
-        await addDoc(collection(getDBInstance(), 'matches'), {
-          ...match,
-          updated_at: serverTimestamp()
-        })
-      }
-
-      return { success: true }
+    } catch (error) {
+      return { success: false, error: 'Failed to generate next round' }
     }
-
-    // If semi finals exist but not completed
-    if (semiFinals.length > 0 && semiFinalsCompleted < semiFinals.length) {
-      return { success: false, error: 'Complete all semi finals first' }
-    }
-
-    // Generate final after semi finals
-    if (semiFinalsCompleted >= 2 && finals.length === 0) {
-      const semiFinalWinners = semiFinals
-        .map(m => m.home_score > m.away_score ? m.home_user_id : m.away_user_id)
-
-      const semiFinalLosers = semiFinals
-        .map(m => m.home_score > m.away_score ? m.away_user_id : m.home_user_id)
-
-      if (semiFinalWinners.length < 2) {
-        return { success: false, error: 'Need 2 semi final winners' }
-      }
-
-      const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
-      const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-
-      const finalists = semiFinalWinners.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-      const thirdPlaceTeams = semiFinalLosers.map((id: string) => users.find((u: any) => u.id === id)).filter((u: any) => u !== undefined) as any[]
-
-      const final = {
-        home_user_id: finalists[0]?.id,
-        away_user_id: finalists[1]?.id,
-        home_team_name: finalists[0]?.team_name || '',
-        away_team_name: finalists[1]?.team_name || '',
-        home_team_logo: finalists[0]?.team_logo || '',
-        away_team_logo: finalists[1]?.team_logo || '',
-        home_team_short_name: finalists[0]?.team_short_name || '',
-        away_team_short_name: finalists[1]?.team_short_name || '',
-        status: 'scheduled',
-        round: 101,
-        phase: 'tournament',
-        tournament_round: 'final'
-      }
-
-      // 3rd place playoff
-      const thirdPlaceMatch = {
-        home_user_id: thirdPlaceTeams[0]?.id,
-        away_user_id: thirdPlaceTeams[1]?.id,
-        home_team_name: thirdPlaceTeams[0]?.team_name || '',
-        away_team_name: thirdPlaceTeams[1]?.team_name || '',
-        home_team_logo: thirdPlaceTeams[0]?.team_logo || '',
-        away_team_logo: thirdPlaceTeams[1]?.team_logo || '',
-        home_team_short_name: thirdPlaceTeams[0]?.team_short_name || '',
-        away_team_short_name: thirdPlaceTeams[1]?.team_short_name || '',
-        status: 'scheduled',
-        round: 102,
-        phase: 'tournament',
-        tournament_round: 'third_place'
-      }
-
-      await addDoc(collection(getDBInstance(), 'matches'), {
-        ...final,
-        updated_at: serverTimestamp()
-      })
-
-      await addDoc(collection(getDBInstance(), 'matches'), {
-        ...thirdPlaceMatch,
-        updated_at: serverTimestamp()
-      })
-
-      return { success: true }
-    }
-
-    // If final is completed, show winner and mark tournament as completed
-    if (finalsCompleted >= 1) {
-      const finalMatch = finals[0]
-      const winner = finalMatch.home_score > finalMatch.away_score 
-        ? finalMatch.home_team_name 
-        : finalMatch.away_team_name
-      
-      // Check if 3rd place match is also completed (for World Cup mode)
-      const thirdPlaceMatches = allMatches.filter(m => m.tournament_round === 'third_place')
-      const thirdPlaceCompleted = completedMatches.filter(m => m.tournament_round === 'third_place').length
-      
-      if (thirdPlaceMatches.length > 0 && thirdPlaceCompleted === 0) {
-        return { success: false, error: 'Complete 3rd place match first' }
-      }
-      
-      // Update league config to mark tournament as completed
-      const configRef = doc(getDBInstance(), 'league_config', 'config')
-      await setDoc(configRef, {
-        id: 'config',
-        status: 'tournament_completed',
-        updated_at: serverTimestamp()
-      }, { merge: true })
-      
-      let message = `🏆 Tournament Winner: ${winner}`
-      if (thirdPlaceMatches.length > 0 && thirdPlaceCompleted > 0) {
-        const thirdPlaceMatch = thirdPlaceMatches[0]
-        const thirdPlace = thirdPlaceMatch.home_score > thirdPlaceMatch.away_score
-          ? thirdPlaceMatch.home_team_name
-          : thirdPlaceMatch.away_team_name
-        message += `\n🥉 3rd Place: ${thirdPlace}`
-      }
-      
-      return { success: false, error: message }
-    }
-
-    return { success: false, error: 'Complete current round first' }
-  } catch (error) {
-    return { success: false, error: 'Failed to generate next round' }
   }
-}
+
 // Match Score Update
 export async function updateMatchScore(
   matchId: string,

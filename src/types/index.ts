@@ -50,6 +50,7 @@ export interface LeagueConfig {
   status: 'registration' | 'league_ongoing' | 'league_completed' | 'tournament_ongoing' | 'tournament_completed' | 'group_ongoing'
   tournament_mode?: 'liga' | 'knockout' | 'worldcup'
   top_4_qualification: boolean
+  qualification_system?: 'top3' | 'top4'
   qualified_teams: string[]
   tournament_started: boolean
   home_away?: boolean
