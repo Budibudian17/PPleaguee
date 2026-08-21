@@ -75,6 +75,37 @@ export async function importFC26Players() {
     const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
     const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
 
+    // Common team name mappings (CSV name -> registered name)
+    const teamNameMappings: { [key: string]: string } = {
+      'arsenal': 'Arsenal FC',
+      'bayern munich': 'Bayern München',
+      'bayern': 'Bayern München',
+      'paris saint-germain': 'PSG',
+      'psg': 'PSG',
+      'paris': 'PSG',
+      'manchester united': 'Manchester United',
+      'man utd': 'Manchester United',
+      'real madrid': 'Real Madrid',
+      'napoli': 'Napoli',
+      'fc barcelona': 'FC Barcelona',
+      'barcelona': 'FC Barcelona',
+      'chelsea': 'Chelsea FC',
+      'liverpool': 'Liverpool FC',
+      'manchester city': 'Manchester City',
+      'man city': 'Manchester City',
+      'juventus': 'Juventus FC',
+      'inter': 'Inter Milan',
+      'inter milan': 'Inter Milan',
+      'ac milan': 'AC Milan',
+      'milan': 'AC Milan',
+      'tottenham': 'Tottenham Hotspur',
+      'spurs': 'Tottenham Hotspur',
+      'dortmund': 'Borussia Dortmund',
+      'borussia dortmund': 'Borussia Dortmund',
+      'atletico madrid': 'Atletico Madrid',
+      'atletico': 'Atletico Madrid'
+    }
+
     // Create a map of team names to user IDs (case-insensitive)
     const teamNameMap = new Map<string, string>()
     users.forEach((user: any) => {
@@ -84,7 +115,20 @@ export async function importFC26Players() {
     // Filter players whose clubs match registered teams
     const matchedPlayers = players.filter(player => {
       const clubName = player.club_name?.toLowerCase()
-      return clubName && teamNameMap.has(clubName)
+      if (!clubName) return false
+
+      // Direct match
+      if (teamNameMap.has(clubName)) return true
+
+      // Check mappings
+      const mappedName = teamNameMappings[clubName]
+      if (mappedName && teamNameMap.has(mappedName.toLowerCase())) return true
+
+      // Try partial match (remove "FC", etc.)
+      const normalizedClub = clubName.replace(/\s+(fc|cf)$/i, '').trim()
+      if (teamNameMap.has(normalizedClub)) return true
+
+      return false
     })
 
     // Use batch write for efficiency
@@ -112,7 +156,24 @@ export async function importFC26Players() {
 
     // Add new players
     for (const player of matchedPlayers) {
-      const userId = teamNameMap.get(player.club_name.toLowerCase())
+      const clubName = player.club_name?.toLowerCase()
+      let userId = teamNameMap.get(clubName)
+
+      // Try mappings if direct match fails
+      if (!userId) {
+        const mappedName = teamNameMappings[clubName]
+        if (mappedName) {
+          userId = teamNameMap.get(mappedName.toLowerCase())
+        }
+      }
+
+      // Try partial match if still no match
+      if (!userId) {
+        const normalizedClub = clubName.replace(/\s+(fc|cf)$/i, '').trim()
+        userId = teamNameMap.get(normalizedClub)
+      }
+
+      const user = users.find((u: any) => u.id === userId) as any
       const playerRef = doc(collection(getDBInstance(), 'game_players'))
 
       batch.set(playerRef, {
@@ -131,7 +192,7 @@ export async function importFC26Players() {
         weight_kg: parseInt(player.weight_kg) || 0,
         preferred_foot: player.preferred_foot,
         user_id: userId,
-        team_name: player.club_name,
+        team_name: user?.team_name || player.club_name, // Use user's team_name for proper matching
         created_at: serverTimestamp(),
         updated_at: serverTimestamp()
       })
@@ -167,10 +228,62 @@ export async function getTeamPlayers(teamName: string) {
       where('team_name', '==', teamName)
     )
     const snapshot = await getDocs(playersQuery)
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+    const players = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+    console.log(`getTeamPlayers for ${teamName}:`, players.length, 'players found')
+    console.log('Players:', players)
+
+    return players
   } catch (error) {
     console.error('Error fetching team players:', error)
     return []
+  }
+}
+
+// Add a single player manually
+export async function addManualPlayer(pin: string, playerData: {
+  user_id: string
+  team_name: string
+  player_name: string
+  short_name?: string
+  long_name?: string
+  club_jersey_number?: number
+  club_position?: string
+  overall?: number
+  potential?: number
+  age?: number
+}) {
+  try {
+    if (!await verifyAdminPin(pin)) {
+      return { success: false, error: 'Invalid PIN' }
+    }
+
+    const playerRef = doc(collection(getDBInstance(), 'game_players'))
+    await setDoc(playerRef, {
+      player_id: `manual_${Date.now()}`,
+      player_name: playerData.player_name,
+      short_name: playerData.short_name || playerData.player_name,
+      long_name: playerData.long_name || playerData.player_name,
+      player_positions: playerData.club_position || '',
+      overall: playerData.overall || 0,
+      potential: playerData.potential || 0,
+      club_name: playerData.team_name,
+      club_position: playerData.club_position || '',
+      club_jersey_number: playerData.club_jersey_number || 0,
+      age: playerData.age || 0,
+      height_cm: 0,
+      weight_kg: 0,
+      preferred_foot: '',
+      user_id: playerData.user_id,
+      team_name: playerData.team_name,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp()
+    })
+
+    return { success: true, message: 'Pemain berhasil ditambahkan' }
+  } catch (error) {
+    console.error('Error adding manual player:', error)
+    return { success: false, error: 'Gagal menambahkan pemain' }
   }
 }
 
@@ -277,6 +390,93 @@ export async function resetTournament(pin: string) {
   } catch (error) {
     console.error('Error resetting tournament:', error)
     return { success: false, error: 'Gagal mereset turnamen' }
+  }
+}
+
+// Swap teams between groups and regenerate World Cup schedule
+export async function swapTeamsAndRegenerate(pin: string, groupAUserIds: string[], groupBUserIds: string[]) {
+  try {
+    if (!await verifyAdminPin(pin)) {
+      return { success: false, error: 'Invalid PIN' }
+    }
+
+    // Get current league config
+    const config = await getLeagueConfig()
+    if (!config || config.tournament_mode !== 'worldcup') {
+      return { success: false, error: 'Hanya bisa swap grup di mode World Cup' }
+    }
+
+    // Get all users
+    const usersSnapshot = await getDocs(collection(getDBInstance(), 'users'))
+    const allUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+    // Reorder users based on new group assignments
+    const groupAUsers = groupAUserIds.map(id => allUsers.find((u: any) => u.id === id)).filter((u: any) => u !== undefined)
+    const groupBUsers = groupBUserIds.map(id => allUsers.find((u: any) => u.id === id)).filter((u: any) => u !== undefined)
+    const reorderedUsers = [...groupAUsers, ...groupBUsers]
+
+    if (reorderedUsers.length !== allUsers.length) {
+      return { success: false, error: 'Invalid team selection' }
+    }
+
+    // Delete all existing matches (group stage and knockout)
+    const matchesSnapshot = await getDocs(collection(getDBInstance(), 'matches'))
+    let batch = writeBatch(getDBInstance())
+    let batchCount = 0
+    const maxBatchSize = 500
+
+    for (const doc of matchesSnapshot.docs) {
+      batch.delete(doc.ref)
+      batchCount++
+      if (batchCount >= maxBatchSize) {
+        await batch.commit()
+        batch = writeBatch(getDBInstance())
+        batchCount = 0
+      }
+    }
+
+    if (batchCount > 0) {
+      await batch.commit()
+    }
+
+    // Delete all stats
+    const statsSnapshot = await getDocs(collection(getDBInstance(), 'stats'))
+    batch = writeBatch(getDBInstance())
+    batchCount = 0
+
+    for (const doc of statsSnapshot.docs) {
+      batch.delete(doc.ref)
+      batchCount++
+      if (batchCount >= maxBatchSize) {
+        await batch.commit()
+        batch = writeBatch(getDBInstance())
+        batchCount = 0
+      }
+    }
+
+    if (batchCount > 0) {
+      await batch.commit()
+    }
+
+    // Regenerate World Cup schedule with new group assignments
+    const result = generateWorldCupSchedule(reorderedUsers as any[], config.home_away || false)
+
+    // Insert new matches
+    const matchesRef = collection(getDBInstance(), 'matches')
+    for (const match of result.matches) {
+      await addDoc(matchesRef, {
+        ...match,
+        updated_at: serverTimestamp()
+      })
+    }
+
+    return {
+      success: true,
+      message: `Berhasil menukar grup dan meregenerate jadwal. ${result.matches.length} pertandingan dibuat.`
+    }
+  } catch (error) {
+    console.error('Error swapping teams:', error)
+    return { success: false, error: 'Gagal menukar grup' }
   }
 }
 

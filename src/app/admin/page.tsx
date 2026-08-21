@@ -13,6 +13,7 @@ import {
   deleteAllData,
   deleteAllGamePlayers,
   resetTournament,
+  swapTeamsAndRegenerate,
   lockRegistrationAndGenerateSchedule,
   verifyAdminPin,
   getLeagueConfig,
@@ -69,6 +70,9 @@ export default function AdminPage() {
   const [showNextRoundModal, setShowNextRoundModal] = useState(false)
   const [showDeleteAllPlayersModal, setShowDeleteAllPlayersModal] = useState(false)
   const [showResetTournamentModal, setShowResetTournamentModal] = useState(false)
+  const [showSwapGroupsModal, setShowSwapGroupsModal] = useState(false)
+  const [selectedGroupA, setSelectedGroupA] = useState<string[]>([])
+  const [selectedGroupB, setSelectedGroupB] = useState<string[]>([])
   
   // Home/Away toggle
   const [homeAway, setHomeAway] = useState(false)
@@ -85,6 +89,7 @@ export default function AdminPage() {
   const [goalTimeline, setGoalTimeline] = useState<{ team: 'home' | 'away', playerName: string, minute: number, assistPlayer?: string, isPenalty?: boolean }[]>([])
   const [homeTeamPlayers, setHomeTeamPlayers] = useState<any[]>([])
   const [awayTeamPlayers, setAwayTeamPlayers] = useState<any[]>([])
+  const [showAllPlayers, setShowAllPlayers] = useState(false)
 
   // Poster generation
   const [showPosterModal, setShowPosterModal] = useState(false)
@@ -563,6 +568,50 @@ export default function AdminPage() {
     setIsLoading(false)
   }
 
+  const handleSwapGroups = async () => {
+    setIsLoading(true)
+    const result = await swapTeamsAndRegenerate(adminPin, selectedGroupA, selectedGroupB)
+    if (result.success) {
+      setMessage({ type: 'success', text: result.message || 'Berhasil menukar grup' })
+      setShowSwapGroupsModal(false)
+      await loadData()
+    } else {
+      setMessage({ type: 'error', text: result.error || 'Gagal menukar grup' })
+    }
+    setIsLoading(false)
+  }
+
+  const moveTeamToGroup = (userId: string, targetGroup: 'A' | 'B') => {
+    if (targetGroup === 'A') {
+      setSelectedGroupA([...selectedGroupA, userId])
+      setSelectedGroupB(selectedGroupB.filter(id => id !== userId))
+    } else {
+      setSelectedGroupB([...selectedGroupB, userId])
+      setSelectedGroupA(selectedGroupA.filter(id => id !== userId))
+    }
+  }
+
+  const openSwapGroupsModal = () => {
+    // Initialize groups based on current matches
+    const groupMatches = matches.filter(m => m.phase === 'group')
+    const groupAUsers = new Set<string>()
+    const groupBUsers = new Set<string>()
+
+    groupMatches.forEach(match => {
+      if (match.group === 'A') {
+        groupAUsers.add(match.home_user_id)
+        groupAUsers.add(match.away_user_id)
+      } else {
+        groupBUsers.add(match.home_user_id)
+        groupBUsers.add(match.away_user_id)
+      }
+    })
+
+    setSelectedGroupA(Array.from(groupAUsers))
+    setSelectedGroupB(Array.from(groupBUsers))
+    setShowSwapGroupsModal(true)
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#000000] text-white p-4 sm:p-6 lg:p-8 flex items-center justify-center">
@@ -703,6 +752,16 @@ export default function AdminPage() {
                 Reset Turnamen
               </button>
             )}
+
+            {leagueConfig?.tournament_mode === 'worldcup' && leagueConfig?.status === 'group_ongoing' && (
+              <button
+                onClick={openSwapGroupsModal}
+                disabled={isLoading}
+                className="bg-yellow-500 text-black font-bold uppercase tracking-wider py-2 px-4 rounded-sm hover:bg-yellow-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+              >
+                Tukar Grup
+              </button>
+            )}
           </div>
         </div>
 
@@ -781,20 +840,29 @@ export default function AdminPage() {
 
           {/* Game Players Section */}
           <div className="bg-[#121212] border border-[#262626] rounded-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#262626] flex items-center justify-between gap-2">
+            <div className="px-4 py-3 border-b border-[#262626] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <h2 className="text-lg font-bold uppercase tracking-wider">PEMAIN GAME ({gamePlayers.length})</h2>
               <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 text-xs sm:text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showAllPlayers}
+                    onChange={(e) => setShowAllPlayers(e.target.checked)}
+                    className="w-4 h-4 accent-[#00FF66]"
+                  />
+                  <span>Show All Players</span>
+                </label>
                 <button
                   onClick={handleImportPlayers}
                   disabled={isLoading}
-                  className="bg-blue-500 text-white font-bold uppercase tracking-wider py-2 px-3 rounded-sm hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                  className="bg-[#00FF66] text-black font-bold uppercase tracking-wider py-1 px-3 rounded-sm hover:bg-[#00CC52] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
                 >
                   Import FC26
                 </button>
                 <button
                   onClick={() => setShowDeleteAllPlayersModal(true)}
-                  disabled={isLoading || gamePlayers.length === 0}
-                  className="bg-red-500 text-white font-bold uppercase tracking-wider py-2 px-3 rounded-sm hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
+                  disabled={isLoading}
+                  className="bg-red-500 text-white font-bold uppercase tracking-wider py-1 px-3 rounded-sm hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"
                 >
                   Hapus Semua
                 </button>
@@ -1126,6 +1194,114 @@ export default function AdminPage() {
         isDangerous={true}
       />
 
+      {/* Swap Groups Modal */}
+      {showSwapGroupsModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 overflow-x-hidden">
+          <div className="bg-[#121212] border border-[#262626] rounded-sm max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="px-4 py-3 border-b border-[#262626] flex items-center justify-between">
+              <h2 className="text-lg font-bold uppercase tracking-wider">
+                TUKAR GRUP
+              </h2>
+              <button
+                onClick={() => setShowSwapGroupsModal(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Group A */}
+                <div className="bg-[#161616] border border-[#262626] rounded-sm p-4">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-[#00FF66] mb-3">
+                    GRUP A ({selectedGroupA.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {users.map((user) => (
+                      <div
+                        key={user.id}
+                        onClick={() => moveTeamToGroup(user.id, 'A')}
+                        className={`p-3 rounded-sm cursor-pointer transition-colors ${
+                          selectedGroupA.includes(user.id)
+                            ? 'bg-[#00FF66]/20 border border-[#00FF66]/50'
+                            : 'bg-[#121212] border border-[#262626] hover:border-[#262626]/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {user.team_logo && (
+                            <img
+                              src={user.team_logo}
+                              alt={user.team_name}
+                              className="w-8 h-8 object-contain"
+                            />
+                          )}
+                          <div>
+                            <div className="font-medium text-white text-sm">{user.team_name}</div>
+                            <div className="text-xs text-gray-500">{user.name}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Group B */}
+                <div className="bg-[#161616] border border-[#262626] rounded-sm p-4">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-blue-500 mb-3">
+                    GRUP B ({selectedGroupB.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {users.map((user) => (
+                      <div
+                        key={user.id}
+                        onClick={() => moveTeamToGroup(user.id, 'B')}
+                        className={`p-3 rounded-sm cursor-pointer transition-colors ${
+                          selectedGroupB.includes(user.id)
+                            ? 'bg-blue-500/20 border border-blue-500/50'
+                            : 'bg-[#121212] border border-[#262626] hover:border-[#262626]/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {user.team_logo && (
+                            <img
+                              src={user.team_logo}
+                              alt={user.team_name}
+                              className="w-8 h-8 object-contain"
+                            />
+                          )}
+                          <div>
+                            <div className="font-medium text-white text-sm">{user.team_name}</div>
+                            <div className="text-xs text-gray-500">{user.name}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={handleSwapGroups}
+                  disabled={isLoading || selectedGroupA.length === 0 || selectedGroupB.length === 0}
+                  className="flex-1 bg-[#00FF66] text-black font-bold uppercase tracking-wider py-2 px-4 rounded-sm hover:bg-[#00CC52] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                >
+                  {isLoading ? 'Memproses...' : 'Simpan & Regenerate Jadwal'}
+                </button>
+                <button
+                  onClick={() => setShowSwapGroupsModal(false)}
+                  disabled={isLoading}
+                  className="flex-1 bg-[#262626] text-white font-bold uppercase tracking-wider py-2 px-4 rounded-sm hover:bg-[#333333] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Score Input Modal */}
       {showScoreModal && selectedMatch && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 overflow-x-hidden">
@@ -1179,18 +1355,21 @@ export default function AdminPage() {
                         <option value="home">Home ({selectedMatch.home_team_name})</option>
                         <option value="away">Away ({selectedMatch.away_team_name})</option>
                       </select>
-                      <select
+                      <input
+                        type="text"
+                        list={`player-list-${index}`}
                         value={goal.playerName}
                         onChange={(e) => handleUpdateGoal(index, 'playerName', e.target.value)}
+                        placeholder="Nama pemain"
                         className="bg-[#121212] border border-[#262626] text-white px-3 py-2 rounded-sm text-sm focus:outline-none focus:border-[#00FF66]"
-                      >
-                        <option value="">Pilih Pemain</option>
+                      />
+                      <datalist id={`player-list-${index}`}>
                         {(goal.team === 'home' ? homeTeamPlayers : awayTeamPlayers).map((player) => (
                           <option key={player.id} value={player.short_name || player.long_name || player.player_name}>
                             {player.short_name || player.long_name || player.player_name} ({player.club_jersey_number || '-'})
                           </option>
                         ))}
-                      </select>
+                      </datalist>
                       <input
                         type="number"
                         placeholder="Menit"
