@@ -442,6 +442,11 @@ function generateRoundRobinSchedule(users: any[], homeAway: boolean = false) {
   const matches: any[] = []
   const n = users.length
 
+  // If less than 2 teams, no matches
+  if (n < 2) {
+    return matches
+  }
+
   // If odd number of teams, add a dummy team for bye
   const hasDummy = n % 2 !== 0
   const teams = hasDummy ? [...users, { id: 'dummy', team_name: 'BYE', team_logo: '', team_short_name: 'BYE' }] as any[] : [...users] as any[]
@@ -455,6 +460,11 @@ function generateRoundRobinSchedule(users: any[], homeAway: boolean = false) {
 
       // Skip matches involving dummy team (bye)
       if (home.id === 'dummy' || away.id === 'dummy') {
+        continue
+      }
+
+      // Skip self-matches (shouldn't happen with proper rotation, but safety check)
+      if (home.id === away.id) {
         continue
       }
 
